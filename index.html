@@ -19,7 +19,7 @@
 </style>
 </head>
 <body class="min-h-screen w-full bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50">
-<div id="app" class="p-4 sm:p-6 max-w-3xl mx-auto space-y-5"></div>
+<div id="app" class="p-4 sm:p-6 lg:p-8 max-w-3xl lg:max-w-5xl mx-auto space-y-5"></div>
 
 <div id="loading" class="fixed inset-0 bg-amber-50/90 flex flex-col items-center justify-center gap-3 z-50">
   <svg class="spin" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
@@ -131,6 +131,7 @@ const DASHBOARD_STATUSES = [
   { key: "ถึงลูกค้า", label: "ถึงหน้างาน", tone: "amber" },
   { key: "เสร็จงาน", label: "จัดส่งสำเร็จ", tone: "done" },
   { key: "ไม่มีคนขับรับงาน", label: "ไม่มีคนขับรับงาน", tone: "warning" },
+  { key: "แจ้งเตือนแอดมิน", label: "แจ้งเตือนแอดมิน", tone: "warning" },
   { key: "ยกเลิก", label: "ยกเลิก", tone: "danger" },
 ];
 
@@ -138,6 +139,7 @@ const FILTER_CHIPS = [
   { key: "ทั้งหมด", label: "ทั้งหมด" },
   ...FLOW_STEPS.map(s => ({ key: s.key, label: s.label })),
   { key: "ไม่มีคนขับรับงาน", label: "ไม่มีคนขับรับงาน" },
+  { key: "แจ้งเตือนแอดมิน", label: "แจ้งเตือนแอดมิน" },
   { key: "ยกเลิก", label: "ยกเลิก" },
 ];
 
@@ -300,18 +302,18 @@ function orderCardHtml(order, idx, isAdmin) {
   return `
     <div class="bg-white rounded-2xl border border-amber-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       ${barHtml}
-      <button onclick="toggleOrder('${escapeHtml(order.orderId)}')" class="w-full flex items-center justify-between gap-3 p-4 text-left">
+      <button onclick="toggleOrder('${escapeHtml(order.orderId)}')" class="w-full flex items-center justify-between gap-3 p-4 text-left flex-wrap sm:flex-nowrap">
         <div class="flex items-center gap-3 min-w-0">
           <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 shrink-0">${icon("package", 20)}</div>
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <p class="font-semibold text-emerald-900 truncate">${escapeHtml(order.orderId)}</p>
+              <p class="font-semibold text-emerald-900 break-all">${escapeHtml(order.orderId)}</p>
               ${chipHtml}
             </div>
             <p class="text-sm text-amber-700/80 truncate">${escapeHtml(order.gardenName || '')}${order.billName ? ` · ${escapeHtml(order.billName)}` : ""}</p>
           </div>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-2 shrink-0 ml-auto">
           ${badgeHtml}
           ${icon("chevron", 18, `text-amber-400 transition-transform ${expanded ? "rotate-90" : ""}`)}
         </div>
@@ -334,7 +336,7 @@ function dashboardHtml(orders, statuses, getKey) {
     if (counts[k] !== undefined) counts[k]++;
   });
 
-  return `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+  return `<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 gap-3">
     ${statuses.map(s => {
       const active = FILTER_STATUS === s.key;
       return `
