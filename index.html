@@ -32,6 +32,7 @@
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw4UvKuRrAQ_3Ldm8U0VJqfjfBQUSYaTEdrxkdXUVN98G68XseCquhDeXfMgU8cVYaY/exec';
 const LIFF_ID = '2010274217-KGSFWvpp';
+const ASSIGN_DRIVER_URL = 'https://liff.line.me/2010274217-BF41B8c2';
 
 const ICONS = {
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
@@ -270,6 +271,15 @@ function orderCardHtml(order, idx, isAdmin) {
 
   const badgeHtml = isAdmin ? statusBadgeHtml(order.status) : customerStatusBadgeHtml(order.status);
 
+  // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
+  const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
+  const assignDriverHtml = needDriver ? `
+    <a href="${ASSIGN_DRIVER_URL}" target="_blank" rel="noopener"
+       onclick="event.stopPropagation()"
+       class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0">
+      ${icon("user", 14)}หาคนขับ
+    </a>` : '';
+
   let detailHtml = '';
   if (expanded) {
     let tlHtml;
@@ -326,6 +336,7 @@ function orderCardHtml(order, idx, isAdmin) {
             <p class="text-sm text-amber-700/80 truncate">${escapeHtml(order.gardenName || '')}${order.billName ? ` · ${escapeHtml(order.billName)}` : ""}</p>
           </div>
         </div>
+        ${assignDriverHtml}
         <div class="flex items-center gap-2 shrink-0 ml-auto">
           ${badgeHtml}
           ${icon("chevron", 18, `text-amber-400 transition-transform ${expanded ? "rotate-90" : ""}`)}
