@@ -298,7 +298,7 @@ function orderCardHtml(order, idx, isAdmin) {
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
   const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
   const assignDriverHtml = needDriver ? `
-    <a href="${ASSIGN_DRIVER_URL}" target="_blank" rel="noopener"
+    <a href="${ASSIGN_DRIVER_URL}?orderId=${encodeURIComponent(order.orderId)}" target="_blank" rel="noopener"
        onclick="event.stopPropagation()"
        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0">
       ${icon("user", 14)}หาคนขับ
