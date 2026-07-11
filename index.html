@@ -68,7 +68,8 @@ const FLOW_STEPS = [
   { key: "ยืนยันแล้ว", label: "ยืนยันแล้ว", icon: "check" },
   { key: "รับงานแล้ว", label: "คนขับรับงาน", icon: "user" },
   { key: "เริ่มงานแล้ว", label: "ออกเดินทาง", icon: "truck" },
-  { key: "ถึงลูกค้า", label: "ถึงหน้างาน", icon: "pin" },
+  { key: "ถึงลูกค้า", label: "ถึงลูกค้า (GPS)", icon: "pin" },
+  { key: "ออกจากลูกค้า", label: "ออกจากลูกค้า", icon: "pin" },
   { key: "เสร็จงาน", label: "จัดส่งสำเร็จ", icon: "home" },
 ];
 
@@ -102,6 +103,7 @@ function toCustomerStatus(rawStatus) {
     "ถึงลาน": "จัดหารถแล้ว",
     "เริ่มงานแล้ว": "ออกเดินทาง",
     "ถึงลูกค้า": "ถึงหน้างาน",
+    "ออกจากลูกค้า": "ถึงหน้างาน",
     "เสร็จงาน": "จัดส่งสำเร็จ",
     "ยกเลิก": "ยกเลิก",
   };
@@ -140,7 +142,8 @@ const DASHBOARD_STATUSES = [
   { key: "ยืนยันแล้ว", label: "ยืนยันแล้ว", tone: "amber" },
   { key: "รับงานแล้ว", label: "คนขับรับงาน", tone: "amber" },
   { key: "เริ่มงานแล้ว", label: "ออกเดินทาง", tone: "amber" },
-  { key: "ถึงลูกค้า", label: "ถึงหน้างาน", tone: "amber" },
+  { key: "ถึงลูกค้า", label: "ถึงลูกค้า (GPS)", tone: "amber" },
+  { key: "ออกจากลูกค้า", label: "ออกจากลูกค้า", tone: "amber" },
   { key: "เสร็จงาน", label: "จัดส่งสำเร็จ", tone: "done" },
   { key: "ไม่มีคนขับรับงาน", label: "ไม่มีคนขับรับงาน", tone: "warning" },
   { key: "แจ้งเตือนแอดมิน", label: "แจ้งเตือนแอดมิน", tone: "warning" },
