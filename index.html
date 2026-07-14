@@ -293,6 +293,12 @@ function rampApproveHtml(order, isAdmin) {
     </div>`;
 }
 
+// แปลงวันที่โชว์เป็น dd-mm-yyyy (เก็บ yyyy-MM-dd ไว้ใช้ input/filter ตามเดิม)
+function fmtDMY(d) {
+  const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d || '');
+}
+
 // ── ส่วนแก้ไขออเดอร์ (เจ้าของ/แอดมิน + งานยังไม่เริ่ม + ก่อนนัด 2 ชม.) ──
 function editSectionHtml(order) {
   if (!order.editable) {
@@ -420,7 +426,7 @@ function orderCardHtml(order, idx, isAdmin) {
       <div class="px-4 pb-4 border-t border-amber-100 pt-3 space-y-3 bg-amber-50/40">
         ${tlHtml}
         <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-emerald-800/80">
-          <span><span class="font-medium text-emerald-900">วันที่:</span> ${escapeHtml(order.date || '')} ${escapeHtml(order.time || '')}</span>
+          <span><span class="font-medium text-emerald-900">วันที่:</span> ${escapeHtml(fmtDMY(order.date))} ${escapeHtml(order.time || '')}</span>
           <span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")}</span>
           <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>
         </div>
