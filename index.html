@@ -165,6 +165,7 @@ let CURRENT_ROLE = '';
 let FILTER_STATUS = "ทั้งหมด";
 let FILTER_OWNER_TYPE = null;
 let EXPANDED_IDS = new Set();
+let EDITING_IDS = new Set();   // ออเดอร์ที่กำลังเปิดฟอร์มแก้ไข
 
 // วันที่วันนี้ในรูปแบบ yyyy-MM-dd (ตาม timezone เครื่องผู้ใช้)
 function todayStr() {
@@ -292,6 +293,77 @@ function rampApproveHtml(order, isAdmin) {
     </div>`;
 }
 
+// ── ส่วนแก้ไขออเดอร์ (เจ้าของ/แอดมิน + งานยังไม่เริ่ม + ก่อนนัด 2 ชม.) ──
+function editSectionHtml(order) {
+  if (!order.editable) {
+    return order.editReason
+      ? `<p class="text-xs text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5">🔒 ${escapeHtml(order.editReason)}</p>`
+      : '';
+  }
+  const oid = escapeHtml(order.orderId);
+  if (!EDITING_IDS.has(order.orderId)) {
+    return `<button onclick="event.stopPropagation(); toggleEdit('${oid}')"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors w-max">
+        ✏️ แก้ไขออเดอร์</button>`;
+  }
+  const inp = 'mt-1 w-full border border-emerald-200 rounded-lg px-2.5 py-1.5 text-sm bg-white';
+  return `
+    <div class="bg-white border border-emerald-300 rounded-xl p-3 space-y-2" onclick="event.stopPropagation()">
+      <p class="text-xs font-bold text-emerald-900">✏️ แก้ไขออเดอร์</p>
+      <label class="block text-xs text-emerald-800/70">วันที่ต้องการ
+        <input type="date" id="ed-date-${oid}" value="${escapeHtml(order.date||'')}" class="${inp}"></label>
+      <label class="block text-xs text-emerald-800/70">เวลา
+        <input type="time" id="ed-time-${oid}" value="${escapeHtml(order.time||'')}" class="${inp}"></label>
+      <label class="block text-xs text-emerald-800/70">จุดรับ
+        <input type="text" id="ed-pickup-${oid}" value="${escapeHtml(order.pickup==='—'?'':order.pickup||'')}" class="${inp}"></label>
+      <label class="block text-xs text-emerald-800/70">จำนวนกระบะ
+        <input type="number" min="1" id="ed-bin-${oid}" value="${escapeHtml(String(order.binCount||1))}" class="${inp}"></label>
+      <div class="flex gap-2 pt-1">
+        <button onclick="submitEdit('${oid}', this)" class="flex-1 px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700">💾 บันทึก</button>
+        <button onclick="toggleEdit('${oid}')" class="flex-1 px-3 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-semibold">ยกเลิก</button>
+      </div>
+      <p class="text-[11px] text-emerald-700/60">แก้ได้ก่อนเวลานัดอย่างน้อย 2 ชม. และงานยังไม่เริ่ม</p>
+    </div>`;
+}
+
+function toggleEdit(orderId) {
+  if (EDITING_IDS.has(orderId)) EDITING_IDS.delete(orderId);
+  else { EDITING_IDS.add(orderId); EXPANDED_IDS.add(orderId); }
+  render();
+}
+
+async function submitEdit(orderId, btn) {
+  const val = k => (document.getElementById('ed-' + k + '-' + orderId) || {}).value;
+  const payload = {
+    action: 'editOrder',
+    userId: window._userId,
+    orderId: orderId,
+    date: val('date'),
+    time: val('time'),
+    pickupPoint: val('pickup'),
+    binCount: val('bin')
+  };
+  btn.disabled = true; btn.innerHTML = 'กำลังบันทึก...';
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // กัน CORS preflight ของ GAS
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      EDITING_IDS.delete(orderId);
+      setTimeout(() => loadOrders(true), 800); // โหลดใหม่ให้เห็นค่าที่แก้
+    } else {
+      alert('แก้ไขไม่สำเร็จ: ' + ((data && data.error) || 'ไม่ทราบสาเหตุ'));
+      btn.disabled = false; btn.innerHTML = '💾 บันทึก';
+    }
+  } catch (e) {
+    alert('เกิดข้อผิดพลาด: ' + (e.message || e));
+    btn.disabled = false; btn.innerHTML = '💾 บันทึก';
+  }
+}
+
 function orderCardHtml(order, idx, isAdmin) {
   const expanded = EXPANDED_IDS.has(order.orderId);
   const ownerStyle = OWNER_TYPE_STYLES[order.ownerType];
@@ -352,6 +424,7 @@ function orderCardHtml(order, idx, isAdmin) {
           <span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")}</span>
           <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>
         </div>
+        ${editSectionHtml(order)}
         ${driverHtml}
         ${rampHtml}
         ${rampApproveHtml(order, isAdmin)}
