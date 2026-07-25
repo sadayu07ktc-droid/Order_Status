@@ -410,7 +410,7 @@ function orderCardHtml(order, idx, isAdmin) {
       // แอดมินเปลี่ยนคนขับได้ ตราบใดที่ยังไม่เสร็จ/ยกเลิก
       const canReassign = isAdmin && !["เสร็จงาน", "ยกเลิก"].includes(order.status);
       const reassignBtn = canReassign ? `
-        <button onclick='event.stopPropagation(); openReassign(${JSON.stringify(JSON.stringify({ orderId: order.orderId, garden: order.gardenName || order.pickup || "", driver: order.driverName || "" }))})'
+        <button onclick="event.stopPropagation(); openReassign('${escapeHtml(order.orderId)}')"
           class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors">
           ${icon("refresh", 12)}เปลี่ยนคนขับ</button>` : '';
       driverHtml = `
@@ -779,13 +779,15 @@ async function approveRamp(orderId, answer, btn) {
 // ── เปลี่ยนคนขับ (แอดมิน) ────────────────────────────────
 let _reassignCtx = null, _reassignDrivers = null;
 
-async function openReassign(payloadJson){
-  const ctx = JSON.parse(JSON.parse(payloadJson));
-  _reassignCtx = ctx;
+async function openReassign(orderId){
+  const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
+  if(!o){ alert('ไม่พบออเดอร์ ' + orderId); return; }
+  _reassignCtx = { orderId: o.orderId, garden: o.gardenName || o.pickup || '', driver: o.driverName || '' };
   const modal = document.getElementById('reassign-modal');
   const list  = document.getElementById('reassign-list');
   document.getElementById('reassign-sub').textContent =
-    `${ctx.orderId} · สวน ${ctx.garden || '—'} · คนขับปัจจุบัน ${ctx.driver || '—'}`;
+    `${_reassignCtx.orderId} · สวน ${_reassignCtx.garden || '—'} · คนขับปัจจุบัน ${_reassignCtx.driver || '—'}`;
+  const s = document.getElementById('reassign-search'); if(s) s.value = '';
   modal.classList.remove('hidden');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลดรายชื่อคนขับ...</p>';
 
@@ -806,13 +808,12 @@ function _renderReassignList(q){
   const list = document.getElementById('reassign-list');
   const cur  = _reassignCtx ? _reassignCtx.driver : '';
   const kw   = (q||'').trim().toLowerCase();
-  const rows = (_reassignDrivers||[]).filter(d =>
-    !kw || (d.name+' '+d.plate).toLowerCase().includes(kw));
-  if(!rows.length){ list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่พบคนขับ</p>'; return; }
-  list.innerHTML = rows.map(d => {
+  // ไม่ฝัง JSON ใน onclick (ชื่อไทย/quote พัง) — ส่ง index อ้างกลับไปที่ _reassignDrivers
+  list.innerHTML = (_reassignDrivers||[]).map((d, i) => {
+    if(kw && !(d.name+' '+d.plate).toLowerCase().includes(kw)) return '';
     const isCur = d.name === cur;
     const busy  = d.status && d.status !== 'ว่าง';
-    return `<button ${isCur?'disabled':''} onclick='doReassign(${JSON.stringify(JSON.stringify({uid:d.uid,name:d.name,plate:d.plate}))})'
+    return `<button ${isCur?'disabled':''} onclick="doReassign(${i})"
       class="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border ${isCur?'border-emerald-300 bg-emerald-50 opacity-60 cursor-not-allowed':'border-amber-200 bg-white hover:bg-amber-50'} text-left transition-colors">
       <span class="min-w-0">
         <span class="block text-sm font-semibold text-emerald-900 truncate">${escapeHtml(d.name)}${isCur?' (คนปัจจุบัน)':''}</span>
@@ -820,7 +821,7 @@ function _renderReassignList(q){
       </span>
       <span class="shrink-0 text-xs px-2 py-0.5 rounded-full ${busy?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}">${escapeHtml(d.status||'—')}</span>
     </button>`;
-  }).join('');
+  }).join('') || '<p class="text-sm text-emerald-700 py-6 text-center">ไม่พบคนขับ</p>';
 }
 
 function closeReassign(){
@@ -828,9 +829,9 @@ function closeReassign(){
   _reassignCtx = null;
 }
 
-async function doReassign(driverJson){
-  const d = JSON.parse(JSON.parse(driverJson));
-  if(!_reassignCtx) return;
+async function doReassign(idx){
+  const d = (_reassignDrivers||[])[idx];
+  if(!d || !_reassignCtx) return;
   if(!confirm(`ยืนยันเปลี่ยนคนขับเป็น ${d.name}?\nระบบจะแจ้งคนขับเดิมว่าไม่ต้องทำงานนี้แล้ว และมอบหมายงานให้คนใหม่`)) return;
   const list = document.getElementById('reassign-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเปลี่ยนคนขับ...</p>';
