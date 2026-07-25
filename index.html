@@ -407,10 +407,19 @@ function orderCardHtml(order, idx, isAdmin) {
 
     let driverHtml = '';
     if (showDriver) {
+      // แอดมินเปลี่ยนคนขับได้ ตราบใดที่ยังไม่เสร็จ/ยกเลิก
+      const canReassign = isAdmin && !["เสร็จงาน", "ยกเลิก"].includes(order.status);
+      const reassignBtn = canReassign ? `
+        <button onclick='event.stopPropagation(); openReassign(${JSON.stringify(JSON.stringify({ orderId: order.orderId, garden: order.gardenName || order.pickup || "", driver: order.driverName || "" }))})'
+          class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors">
+          ${icon("refresh", 12)}เปลี่ยนคนขับ</button>` : '';
       driverHtml = `
         <div class="flex items-center justify-between gap-2 text-sm bg-white border border-amber-200 rounded-xl px-3 py-2 text-emerald-900">
           <span>${icon("truck", 14, "inline -mt-0.5 mr-1.5")}คนขับ: ${escapeHtml(order.driverName)} · ทะเบียน ${escapeHtml(order.plate || '')}</span>
-          ${order.driverPhone ? `<a href="tel:${escapeHtml(order.driverPhone)}" onclick="event.stopPropagation()" class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">${icon("phone", 12)}${escapeHtml(order.driverPhone)}</a>` : ''}
+          <span class="flex items-center gap-1.5 shrink-0">
+            ${order.driverPhone ? `<a href="tel:${escapeHtml(order.driverPhone)}" onclick="event.stopPropagation()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">${icon("phone", 12)}${escapeHtml(order.driverPhone)}</a>` : ''}
+            ${reassignBtn}
+          </span>
         </div>`;
     }
 
@@ -767,8 +776,96 @@ async function approveRamp(orderId, answer, btn) {
   }
 }
 
+// ── เปลี่ยนคนขับ (แอดมิน) ────────────────────────────────
+let _reassignCtx = null, _reassignDrivers = null;
+
+async function openReassign(payloadJson){
+  const ctx = JSON.parse(JSON.parse(payloadJson));
+  _reassignCtx = ctx;
+  const modal = document.getElementById('reassign-modal');
+  const list  = document.getElementById('reassign-list');
+  document.getElementById('reassign-sub').textContent =
+    `${ctx.orderId} · สวน ${ctx.garden || '—'} · คนขับปัจจุบัน ${ctx.driver || '—'}`;
+  modal.classList.remove('hidden');
+  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลดรายชื่อคนขับ...</p>';
+
+  if(!_reassignDrivers){
+    try{
+      const r = await fetch(`${GAS_URL}?action=getReassignDrivers&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json());
+      if(!r || !r.success) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ');
+      _reassignDrivers = r.drivers || [];
+    }catch(e){
+      list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดรายชื่อไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`;
+      return;
+    }
+  }
+  _renderReassignList('');
+}
+
+function _renderReassignList(q){
+  const list = document.getElementById('reassign-list');
+  const cur  = _reassignCtx ? _reassignCtx.driver : '';
+  const kw   = (q||'').trim().toLowerCase();
+  const rows = (_reassignDrivers||[]).filter(d =>
+    !kw || (d.name+' '+d.plate).toLowerCase().includes(kw));
+  if(!rows.length){ list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่พบคนขับ</p>'; return; }
+  list.innerHTML = rows.map(d => {
+    const isCur = d.name === cur;
+    const busy  = d.status && d.status !== 'ว่าง';
+    return `<button ${isCur?'disabled':''} onclick='doReassign(${JSON.stringify(JSON.stringify({uid:d.uid,name:d.name,plate:d.plate}))})'
+      class="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border ${isCur?'border-emerald-300 bg-emerald-50 opacity-60 cursor-not-allowed':'border-amber-200 bg-white hover:bg-amber-50'} text-left transition-colors">
+      <span class="min-w-0">
+        <span class="block text-sm font-semibold text-emerald-900 truncate">${escapeHtml(d.name)}${isCur?' (คนปัจจุบัน)':''}</span>
+        <span class="block text-xs text-emerald-700/70 truncate">ทะเบียน ${escapeHtml(d.plate||'—')} · ${escapeHtml(d.type||'')}</span>
+      </span>
+      <span class="shrink-0 text-xs px-2 py-0.5 rounded-full ${busy?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}">${escapeHtml(d.status||'—')}</span>
+    </button>`;
+  }).join('');
+}
+
+function closeReassign(){
+  document.getElementById('reassign-modal').classList.add('hidden');
+  _reassignCtx = null;
+}
+
+async function doReassign(driverJson){
+  const d = JSON.parse(JSON.parse(driverJson));
+  if(!_reassignCtx) return;
+  if(!confirm(`ยืนยันเปลี่ยนคนขับเป็น ${d.name}?\nระบบจะแจ้งคนขับเดิมว่าไม่ต้องทำงานนี้แล้ว และมอบหมายงานให้คนใหม่`)) return;
+  const list = document.getElementById('reassign-list');
+  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเปลี่ยนคนขับ...</p>';
+  try{
+    const res = await fetch(GAS_URL, {method:'POST', redirect:'follow', body: JSON.stringify({
+      action:'reassignDriver', userId: window._userId,
+      orderId: _reassignCtx.orderId, driverUid: d.uid, driverName: d.name, plate: d.plate
+    })});
+    const r = await res.json();
+    if(!r || !r.success){ alert('ไม่สำเร็จ: '+((r&&r.error)||'unknown')); _renderReassignList(''); return; }
+    closeReassign();
+    alert(`✅ เปลี่ยนเป็น ${r.to} แล้ว\nแจ้งคนขับเดิมและคนใหม่เรียบร้อย`);
+    loadOrders(true);
+  }catch(e){
+    alert('เกิดข้อผิดพลาด: '+(e.message||e)); _renderReassignList('');
+  }
+}
+
 init();
 </script>
+
+<div id="reassign-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this)closeReassign()">
+  <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] flex flex-col shadow-xl">
+    <div class="px-4 pt-4 pb-3 border-b border-amber-100">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-base font-bold text-emerald-900">เปลี่ยนคนขับ</h3>
+        <button onclick="closeReassign()" class="text-emerald-700/60 hover:text-emerald-900 text-xl leading-none">&times;</button>
+      </div>
+      <p id="reassign-sub" class="text-xs text-emerald-700/70 mt-1"></p>
+      <input id="reassign-search" oninput="_renderReassignList(this.value)" placeholder="ค้นหาชื่อ / ทะเบียน"
+        class="mt-3 w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
+    </div>
+    <div id="reassign-list" class="p-3 space-y-2 overflow-y-auto"></div>
+  </div>
+</div>
 
 </body>
 </html>
