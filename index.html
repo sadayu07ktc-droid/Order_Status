@@ -218,7 +218,15 @@ function customerStatusBadgeHtml(rawStatus) {
   return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${cls}">${icon(isDone ? "check" : "clock", 13)}${label}</span>`;
 }
 
-function timelineHtml(status, timestamps, steps, cancelReason) {
+function checkinLabel(source) {
+  // ป้าย "ถึงลูกค้า" ให้ตรงที่มาจริง: GPS อัตโนมัติ / คนขับกดเอง / ไม่ทราบ
+  const s = String(source || '');
+  if (s.indexOf('GPS') !== -1) return 'ถึงลูกค้า (GPS)';
+  if (s.trim()) return 'ถึงลูกค้า (กดเอง)';
+  return 'ถึงลูกค้า';   // ไม่ทราบที่มา → ไม่เคลม GPS
+}
+
+function timelineHtml(status, timestamps, steps, cancelReason, checkinSource) {
   timestamps = timestamps || {};
   const isCancelled = status === "ยกเลิก";
   const exception = EXCEPTION_STATUSES[status];
@@ -229,6 +237,7 @@ function timelineHtml(status, timestamps, steps, cancelReason) {
     const done = idx <= effectiveIdx && currentIdx !== -1;
     const isLast = idx === steps.length - 1;
     const ts = timestamps[step.key];
+    const label = (step.key === 'ถึงลูกค้า') ? checkinLabel(checkinSource) : step.label;
     const circleCls = done ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-amber-400";
     const labelCls  = done ? "text-emerald-800" : "text-amber-700/60";
     const connectorCls = (idx < effectiveIdx && currentIdx !== -1) ? "bg-emerald-500" : "bg-amber-200";
@@ -236,7 +245,7 @@ function timelineHtml(status, timestamps, steps, cancelReason) {
       <div class="flex items-start min-w-fit">
         <div class="flex flex-col items-center gap-1.5">
           <div class="flex items-center justify-center w-9 h-9 rounded-full border-2 transition-colors ${circleCls}">${icon(step.icon, 16)}</div>
-          <span class="text-[11px] font-medium text-center w-20 leading-tight ${labelCls}">${step.label}</span>
+          <span class="text-[11px] font-medium text-center w-20 leading-tight ${labelCls}">${label}</span>
           <span class="text-[10px] text-amber-600/70 text-center w-20 leading-tight tabular-nums">${ts || "—"}</span>
         </div>
         ${!isLast ? `<div class="h-0.5 w-10 sm:w-16 mx-1 mt-[18px] rounded transition-colors ${connectorCls}"></div>` : ''}
@@ -397,7 +406,7 @@ function orderCardHtml(order, idx, isAdmin) {
   if (expanded) {
     let tlHtml;
     if (isAdmin) {
-      tlHtml = timelineHtml(order.status, order.timestamps, FLOW_STEPS, order.cancelReason);
+      tlHtml = timelineHtml(order.status, order.timestamps, FLOW_STEPS, order.cancelReason, order.checkinSource);
     } else {
       tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
     }
