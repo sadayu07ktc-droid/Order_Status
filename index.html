@@ -388,9 +388,14 @@ function orderCardHtml(order, idx, isAdmin) {
 
   let barHtml = '';
   let chipHtml = '';
-  if (isAdmin && ownerStyle) {
-    barHtml = `<div class="h-1.5 w-full ${ownerStyle.bar}"></div>`;
-    chipHtml = `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full ${ownerStyle.chip}">${ownerStyle.label}</span>`;
+  if (isAdmin) {
+    if (order.jobType === 'Packing') {                 // 🆕 งาน Packing → ป้าย "Packing" (แทน owner-type)
+      barHtml = `<div class="h-1.5 w-full bg-fuchsia-500"></div>`;
+      chipHtml = `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-fuchsia-100 text-fuchsia-700">📦 Packing</span>`;
+    } else if (ownerStyle) {
+      barHtml = `<div class="h-1.5 w-full ${ownerStyle.bar}"></div>`;
+      chipHtml = `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full ${ownerStyle.chip}">${ownerStyle.label}</span>`;
+    }
   }
 
   const badgeHtml = isAdmin ? statusBadgeHtml(order.status) : customerStatusBadgeHtml(order.status);
