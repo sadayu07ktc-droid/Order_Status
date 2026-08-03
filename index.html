@@ -630,8 +630,14 @@ function packingChipHtml() {
   // ส่ง uid แอดมินไปด้วย → แดชบอร์ด Packing รู้ตัวตน (ปุ่ม "สร้างออเดอร์" ใช้งานได้)
   const url = PACKING_URL + (PACKING_URL.indexOf('?') >= 0 ? '&' : '?') + 'uid=' + encodeURIComponent(window._userId || '');
   return PACKING_URL
-    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="${cls}" onclick="event.stopPropagation()">${inner}</a>`
-    : `<button type="button" onclick="alert('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
+    ? `<a id="pkchip" href="${escapeHtml(url)}" target="_blank" rel="noopener" class="${cls}" onclick="event.stopPropagation()">${inner}</a>`
+    : `<button id="pkchip" type="button" onclick="alert('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
+}
+
+// อัปเดตเฉพาะชิป Packing (หลัง getPkSummary กลับมา) — ไม่ re-render ทั้งหน้า
+function refreshPackingChip() {
+  const el = document.getElementById('pkchip');
+  if (el) el.outerHTML = packingChipHtml();
 }
 
 function render() {
@@ -769,12 +775,14 @@ async function loadOrders(isRefresh) {
 
     ALL_ORDERS = data.orders || [];
     CURRENT_ROLE = data.role;
-    // 🆕 นับคำขอ Packing ค้างจัดรถ สำหรับชิป (เฉพาะแอดมิน · best-effort ไม่บล็อก)
-    if (CURRENT_ROLE === 'Admin') {
-      try { const pk = await fetch(`${GAS_URL}?action=getPkSummary`).then(r => r.json()); if (pk && pk.ok) PK_PENDING = pk.waiting; } catch (_) {}
-    }
     render();
     document.getElementById('loading').style.display = 'none';
+    // 🆕 นับคำขอ Packing ค้างจัดรถ — ยิงเบื้องหลัง ไม่บล็อกการแสดงออเดอร์ · เสร็จแล้วอัปเดตเฉพาะชิป
+    if (CURRENT_ROLE === 'Admin') {
+      fetch(`${GAS_URL}?action=getPkSummary`).then(r => r.json()).then(pk => {
+        if (pk && pk.ok) { PK_PENDING = pk.waiting; refreshPackingChip(); }
+      }).catch(() => {});
+    }
   } catch (e) {
     console.error(e);
     if (!isRefresh) {
