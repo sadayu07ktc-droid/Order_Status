@@ -31,6 +31,8 @@
 
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw4UvKuRrAQ_3Ldm8U0VJqfjfBQUSYaTEdrxkdXUVN98G68XseCquhDeXfMgU8cVYaY/exec';
+const PACKING_URL = '';   // ⚠️ ใส่ URL แดชบอร์ด Packing (SSB-App/packing/) ที่ deploy · เว้นว่าง = ชิปเตือนให้ตั้งค่า
+let PK_PENDING = null;    // จำนวนคำขอ Packing ค้างจัดรถ (จาก getPkSummary)
 const LIFF_ID = '2010274217-KGSFWvpp';
 const ASSIGN_DRIVER_URL = 'https://liff.line.me/2010274217-BF41B8c2';
 const DASHBOARD_URL = 'https://liff.line.me/2010274217-Ot7vGhri';   // SSB Dashboard (LIFF_ID_ADMIN)
@@ -617,6 +619,19 @@ function matchesDateFilter(orderDate) {
 }
 
 // ====== Main render ======
+// 🆕 ชิป Packing — โชว์จำนวนค้างจัดรถ + กดเข้า dashboard (ดีไซน์เด่น: ไล่สีม่วง-ชมพู ต่างจากชิปอื่น)
+function packingChipHtml() {
+  const has = PK_PENDING != null;
+  const n = has ? PK_PENDING : '–';
+  const hot = has && PK_PENDING > 0;
+  const badge = `<span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full ${hot ? 'bg-white text-fuchsia-700' : 'bg-white/25 text-white'} text-xs font-extrabold">${n}</span>`;
+  const inner = `<span class="text-base leading-none">📦</span><span>Packing</span>${badge}<span class="text-white/85 text-xs font-medium">ค้างจัดรถ</span>`;
+  const cls = `ml-auto inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold text-white shadow-md bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 hover:shadow-lg transition-all ${hot ? 'ring-2 ring-fuchsia-300 ring-offset-1' : ''}`;
+  return PACKING_URL
+    ? `<a href="${escapeHtml(PACKING_URL)}" target="_blank" rel="noopener" class="${cls}" onclick="event.stopPropagation()">${inner}</a>`
+    : `<button type="button" onclick="alert('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
+}
+
 function render() {
   const isAdmin = CURRENT_ROLE === 'Admin';
 
@@ -671,6 +686,7 @@ function render() {
       <button onclick="toggleDateRange()" class="px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${DATE_RANGE_MODE ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-emerald-800 hover:bg-amber-50"}">
         ${icon("calendar", 14, "inline -mt-0.5 mr-1")}ช่วงวันที่
       </button>
+      ${isAdmin ? packingChipHtml() : ''}
     </div>`;
 
   // ออเดอร์ตามวันที่เลือก (ก่อน filter สถานะ/ผู้สั่ง) — ใช้สำหรับนับในแดชบอร์ด
@@ -751,6 +767,10 @@ async function loadOrders(isRefresh) {
 
     ALL_ORDERS = data.orders || [];
     CURRENT_ROLE = data.role;
+    // 🆕 นับคำขอ Packing ค้างจัดรถ สำหรับชิป (เฉพาะแอดมิน · best-effort ไม่บล็อก)
+    if (CURRENT_ROLE === 'Admin') {
+      try { const pk = await fetch(`${GAS_URL}?action=getPkSummary`).then(r => r.json()); if (pk && pk.ok) PK_PENDING = pk.waiting; } catch (_) {}
+    }
     render();
     document.getElementById('loading').style.display = 'none';
   } catch (e) {
