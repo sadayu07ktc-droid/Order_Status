@@ -909,51 +909,69 @@ async function doReassign(idx){
   }
 }
 
-// ── ➕ เพิ่มงานเข้าทริป (เลือกคำขอ Packing ค้าง) ──
-let _addJobCtx = null, _pkWaiting = null;
+// ── ➕ เพิ่มงานเข้าทริป (2 โหมด: 📦 Packing ค้าง / 🌴 แวะลาน รับปาล์ม) ──
+let _addJobCtx = null, _pkWaiting = null, _rampList = null, _addJobMode = 'packing';
 async function openAddJob(orderId){
   const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
   if(!o){ alert('ไม่พบออเดอร์ ' + orderId); return; }
   _addJobCtx = { orderId: o.orderId, driver: o.driverName || '' };
+  _addJobMode = 'packing'; _pkWaiting = null; _rampList = null;
   document.getElementById('addjob-sub').textContent = `${o.orderId} · คนขับ ${o.driverName || '—'} · เลือกงานที่จะเพิ่มเข้าทริป`;
-  const list = document.getElementById('addjob-list');
-  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลดคำขอ Packing ค้าง...</p>';
+  _renderAddJobTabs();
   document.getElementById('addjob-modal').classList.remove('hidden');
+  loadAddJobList();
+}
+function _renderAddJobTabs(){
+  const t = document.getElementById('addjob-tabs');
+  const b = (m,l)=>`<button onclick="switchAddJobMode('${m}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${_addJobMode===m?'bg-emerald-600 border-emerald-600 text-white':'bg-white border-amber-200 text-emerald-800 hover:bg-amber-50'}">${l}</button>`;
+  t.innerHTML = b('packing','📦 งาน Packing') + b('ramp','🌴 งานขากลับ (แวะลาน)');
+}
+function switchAddJobMode(m){ _addJobMode = m; _renderAddJobTabs(); loadAddJobList(); }
+async function loadAddJobList(){
+  const list = document.getElementById('addjob-list');
+  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลด...</p>';
   try{
-    const r = await fetch(`${GAS_URL}?action=getPkWaiting&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json());
-    if(!r || !r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ');
-    _pkWaiting = r.requests || [];
-  }catch(e){
-    list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`;
-    return;
-  }
+    if(_addJobMode==='packing'){
+      if(!_pkWaiting){ const r = await fetch(`${GAS_URL}?action=getPkWaiting&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _pkWaiting = r.requests||[]; }
+    }else{
+      if(!_rampList){ const r = await fetch(`${GAS_URL}?action=getRampList&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _rampList = r.ramps||[]; }
+    }
+  }catch(e){ list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`; return; }
   _renderAddJobList();
 }
 function _renderAddJobList(){
   const list = document.getElementById('addjob-list');
-  if(!_pkWaiting || !_pkWaiting.length){
-    list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่มีคำขอ Packing ค้างให้เพิ่ม</p>'; return;
+  if(_addJobMode==='packing'){
+    if(!_pkWaiting || !_pkWaiting.length){ list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่มีคำขอ Packing ค้างให้เพิ่ม</p>'; return; }
+    list.innerHTML = _pkWaiting.map((q,i)=>`
+      <button onclick="doAddJob('packing',${i})" class="w-full text-left px-3 py-2.5 rounded-xl border border-amber-200 bg-white hover:bg-amber-50 transition-colors">
+        <span class="block text-sm font-semibold text-emerald-900 truncate">${escapeHtml(q.customer_name||'-')} → ${escapeHtml(q.destination||'-')}</span>
+        <span class="block text-xs text-emerald-700/70 truncate">${escapeHtml(q.request_id)} · ${escapeHtml(q.vehicle_type||'')} · ${escapeHtml(q.want_date||'')}</span>
+      </button>`).join('');
+  }else{
+    if(!_rampList || !_rampList.length){ list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่มีลานในระบบ</p>'; return; }
+    list.innerHTML = _rampList.map((r,i)=>`
+      <button onclick="doAddJob('ramp',${i})" class="w-full text-left px-3 py-2.5 rounded-xl border border-amber-200 bg-white hover:bg-amber-50 transition-colors">
+        <span class="block text-sm font-semibold text-emerald-900 truncate">🌴 ${escapeHtml(r.name||r.code)}</span>
+        <span class="block text-xs text-emerald-700/70 truncate">${escapeHtml(r.code)} · รับปาล์มขากลับ</span>
+      </button>`).join('');
   }
-  list.innerHTML = _pkWaiting.map((q,i)=>`
-    <button onclick="doAddJob(${i})" class="w-full text-left px-3 py-2.5 rounded-xl border border-amber-200 bg-white hover:bg-amber-50 transition-colors">
-      <span class="block text-sm font-semibold text-emerald-900 truncate">${escapeHtml(q.customer_name||'-')} → ${escapeHtml(q.destination||'-')}</span>
-      <span class="block text-xs text-emerald-700/70 truncate">${escapeHtml(q.request_id)} · ${escapeHtml(q.vehicle_type||'')} · ${escapeHtml(q.want_date||'')}</span>
-    </button>`).join('');
 }
 function closeAddJob(){ document.getElementById('addjob-modal').classList.add('hidden'); _addJobCtx=null; }
-async function doAddJob(idx){
-  const q = (_pkWaiting||[])[idx]; if(!q || !_addJobCtx) return;
-  if(!confirm(`เพิ่มงาน "${q.customer_name} → ${q.destination}" เข้าทริปของ ${_addJobCtx.driver}?\nคนขับจะได้รับงานนี้เพิ่มทันที`)) return;
+async function doAddJob(mode, idx){
+  if(!_addJobCtx) return;
+  let payload, label;
+  if(mode==='packing'){ const q=(_pkWaiting||[])[idx]; if(!q) return; payload={source:'packing',requestId:q.request_id}; label=`${q.customer_name} → ${q.destination}`; }
+  else { const r=(_rampList||[])[idx]; if(!r) return; payload={source:'ramp',rampCode:r.code,rampName:r.name}; label=`รับปาล์มขากลับ · ${r.name||r.code}`; }
+  if(!confirm(`เพิ่มงาน "${label}" เข้าทริปของ ${_addJobCtx.driver}?\nคนขับจะได้รับงานนี้เพิ่มทันที`)) return;
   const list = document.getElementById('addjob-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเพิ่มงาน...</p>';
   try{
-    const res = await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({
-      action:'addJobToTrip', userId: window._userId, baseOrderId: _addJobCtx.orderId, source:'packing', requestId: q.request_id
-    })});
+    const res = await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({action:'addJobToTrip', userId: window._userId, baseOrderId: _addJobCtx.orderId}, payload))});
     const txt = await res.text(); let d=null; try{ d=JSON.parse(txt); }catch(_){}
     if(d && d.success){ closeAddJob(); alert(`✅ เพิ่มงาน ${d.orderId} เข้าทริปแล้ว · แจ้งคนขับ ${d.driverName||''} เรียบร้อย`); loadOrders(true); return; }
     if(d && !d.success){ alert('ไม่สำเร็จ: '+(d.error||'unknown')); _renderAddJobList(); return; }
-    // GAS POST คืน HTML (quirk) — server มักสำเร็จ → รีเฟรชเช็ค
     closeAddJob(); alert('✅ ส่งคำขอเพิ่มงานแล้ว · กำลังรีเฟรช'); setTimeout(()=>loadOrders(true), 1500);
   }catch(e){ alert('ผิดพลาด: '+(e.message||e)); _renderAddJobList(); }
 }
@@ -984,6 +1002,7 @@ init();
         <button onclick="closeAddJob()" class="text-emerald-700/60 hover:text-emerald-900 text-xl leading-none">&times;</button>
       </div>
       <p id="addjob-sub" class="text-xs text-emerald-700/70 mt-1"></p>
+      <div id="addjob-tabs" class="flex gap-2 mt-3"></div>
     </div>
     <div id="addjob-list" class="p-3 space-y-2 overflow-y-auto"></div>
   </div>
