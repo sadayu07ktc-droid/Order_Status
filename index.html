@@ -424,11 +424,16 @@ function orderCardHtml(order, idx, isAdmin) {
         <button onclick="event.stopPropagation(); openReassign('${escapeHtml(order.orderId)}')"
           class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors">
           ${icon("refresh", 12)}เปลี่ยนคนขับ</button>` : '';
+      const addJobBtn = canReassign ? `
+        <button onclick="event.stopPropagation(); openAddJob('${escapeHtml(order.orderId)}')"
+          class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-fuchsia-600 text-white text-xs font-semibold hover:bg-fuchsia-700 transition-colors">
+          ➕ เพิ่มงาน</button>` : '';
       driverHtml = `
         <div class="flex items-center justify-between gap-2 text-sm bg-white border border-amber-200 rounded-xl px-3 py-2 text-emerald-900">
           <span>${icon("truck", 14, "inline -mt-0.5 mr-1.5")}คนขับ: ${escapeHtml(order.driverName)} · ทะเบียน ${escapeHtml(order.plate || '')}</span>
-          <span class="flex items-center gap-1.5 shrink-0">
+          <span class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
             ${order.driverPhone ? `<a href="tel:${escapeHtml(order.driverPhone)}" onclick="event.stopPropagation()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">${icon("phone", 12)}${escapeHtml(order.driverPhone)}</a>` : ''}
+            ${addJobBtn}
             ${reassignBtn}
           </span>
         </div>`;
@@ -899,6 +904,55 @@ async function doReassign(idx){
   }
 }
 
+// ── ➕ เพิ่มงานเข้าทริป (เลือกคำขอ Packing ค้าง) ──
+let _addJobCtx = null, _pkWaiting = null;
+async function openAddJob(orderId){
+  const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
+  if(!o){ alert('ไม่พบออเดอร์ ' + orderId); return; }
+  _addJobCtx = { orderId: o.orderId, driver: o.driverName || '' };
+  document.getElementById('addjob-sub').textContent = `${o.orderId} · คนขับ ${o.driverName || '—'} · เลือกงานที่จะเพิ่มเข้าทริป`;
+  const list = document.getElementById('addjob-list');
+  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลดคำขอ Packing ค้าง...</p>';
+  document.getElementById('addjob-modal').classList.remove('hidden');
+  try{
+    const r = await fetch(`${GAS_URL}?action=getPkWaiting&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json());
+    if(!r || !r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ');
+    _pkWaiting = r.requests || [];
+  }catch(e){
+    list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`;
+    return;
+  }
+  _renderAddJobList();
+}
+function _renderAddJobList(){
+  const list = document.getElementById('addjob-list');
+  if(!_pkWaiting || !_pkWaiting.length){
+    list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่มีคำขอ Packing ค้างให้เพิ่ม</p>'; return;
+  }
+  list.innerHTML = _pkWaiting.map((q,i)=>`
+    <button onclick="doAddJob(${i})" class="w-full text-left px-3 py-2.5 rounded-xl border border-amber-200 bg-white hover:bg-amber-50 transition-colors">
+      <span class="block text-sm font-semibold text-emerald-900 truncate">${escapeHtml(q.customer_name||'-')} → ${escapeHtml(q.destination||'-')}</span>
+      <span class="block text-xs text-emerald-700/70 truncate">${escapeHtml(q.request_id)} · ${escapeHtml(q.vehicle_type||'')} · ${escapeHtml(q.want_date||'')}</span>
+    </button>`).join('');
+}
+function closeAddJob(){ document.getElementById('addjob-modal').classList.add('hidden'); _addJobCtx=null; }
+async function doAddJob(idx){
+  const q = (_pkWaiting||[])[idx]; if(!q || !_addJobCtx) return;
+  if(!confirm(`เพิ่มงาน "${q.customer_name} → ${q.destination}" เข้าทริปของ ${_addJobCtx.driver}?\nคนขับจะได้รับงานนี้เพิ่มทันที`)) return;
+  const list = document.getElementById('addjob-list');
+  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเพิ่มงาน...</p>';
+  try{
+    const res = await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({
+      action:'addJobToTrip', userId: window._userId, baseOrderId: _addJobCtx.orderId, source:'packing', requestId: q.request_id
+    })});
+    const txt = await res.text(); let d=null; try{ d=JSON.parse(txt); }catch(_){}
+    if(d && d.success){ closeAddJob(); alert(`✅ เพิ่มงาน ${d.orderId} เข้าทริปแล้ว · แจ้งคนขับ ${d.driverName||''} เรียบร้อย`); loadOrders(true); return; }
+    if(d && !d.success){ alert('ไม่สำเร็จ: '+(d.error||'unknown')); _renderAddJobList(); return; }
+    // GAS POST คืน HTML (quirk) — server มักสำเร็จ → รีเฟรชเช็ค
+    closeAddJob(); alert('✅ ส่งคำขอเพิ่มงานแล้ว · กำลังรีเฟรช'); setTimeout(()=>loadOrders(true), 1500);
+  }catch(e){ alert('ผิดพลาด: '+(e.message||e)); _renderAddJobList(); }
+}
+
 init();
 </script>
 
@@ -914,6 +968,19 @@ init();
         class="mt-3 w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
     </div>
     <div id="reassign-list" class="p-3 space-y-2 overflow-y-auto"></div>
+  </div>
+</div>
+
+<div id="addjob-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this)closeAddJob()">
+  <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] flex flex-col shadow-xl">
+    <div class="px-4 pt-4 pb-3 border-b border-amber-100">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-base font-bold text-emerald-900">➕ เพิ่มงานเข้าทริป</h3>
+        <button onclick="closeAddJob()" class="text-emerald-700/60 hover:text-emerald-900 text-xl leading-none">&times;</button>
+      </div>
+      <p id="addjob-sub" class="text-xs text-emerald-700/70 mt-1"></p>
+    </div>
+    <div id="addjob-list" class="p-3 space-y-2 overflow-y-auto"></div>
   </div>
 </div>
 
