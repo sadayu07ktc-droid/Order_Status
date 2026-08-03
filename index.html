@@ -31,7 +31,7 @@
 
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw4UvKuRrAQ_3Ldm8U0VJqfjfBQUSYaTEdrxkdXUVN98G68XseCquhDeXfMgU8cVYaY/exec';
-const PACKING_URL = '';   // ⚠️ ใส่ URL แดชบอร์ด Packing (SSB-App/packing/) ที่ deploy · เว้นว่าง = ชิปเตือนให้ตั้งค่า
+const PACKING_URL = 'https://sadayu07ktc-droid.github.io/SSB-App/packing/';   // แดชบอร์ด Packing (SSB-App)
 let PK_PENDING = null;    // จำนวนคำขอ Packing ค้างจัดรถ (จาก getPkSummary)
 const LIFF_ID = '2010274217-KGSFWvpp';
 const ASSIGN_DRIVER_URL = 'https://liff.line.me/2010274217-BF41B8c2';
@@ -627,8 +627,10 @@ function packingChipHtml() {
   const badge = `<span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full ${hot ? 'bg-white text-fuchsia-700' : 'bg-white/25 text-white'} text-xs font-extrabold">${n}</span>`;
   const inner = `<span class="text-base leading-none">📦</span><span>Packing</span>${badge}<span class="text-white/85 text-xs font-medium">ค้างจัดรถ</span>`;
   const cls = `ml-auto inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold text-white shadow-md bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 hover:shadow-lg transition-all ${hot ? 'ring-2 ring-fuchsia-300 ring-offset-1' : ''}`;
+  // ส่ง uid แอดมินไปด้วย → แดชบอร์ด Packing รู้ตัวตน (ปุ่ม "สร้างออเดอร์" ใช้งานได้)
+  const url = PACKING_URL + (PACKING_URL.indexOf('?') >= 0 ? '&' : '?') + 'uid=' + encodeURIComponent(window._userId || '');
   return PACKING_URL
-    ? `<a href="${escapeHtml(PACKING_URL)}" target="_blank" rel="noopener" class="${cls}" onclick="event.stopPropagation()">${inner}</a>`
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="${cls}" onclick="event.stopPropagation()">${inner}</a>`
     : `<button type="button" onclick="alert('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
 }
 
