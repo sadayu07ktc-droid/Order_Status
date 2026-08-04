@@ -717,10 +717,13 @@ function render() {
         ${ownerTypeDashboardHtml(dateFilteredOrders)}
       </div>`;
 
+    // สรุปสถานะ — กรองตาม "ผู้สั่ง" ที่เลือก (จิ้มเจ้าของสวน → เห็นเฉพาะสถานะของออเดอร์เจ้าของสวน)
+    const _statusSummaryOrders = FILTER_OWNER_TYPE
+      ? dateFilteredOrders.filter(o => o.ownerType === FILTER_OWNER_TYPE) : dateFilteredOrders;
     html += `
       <div class="space-y-2">
-        <p class="text-sm font-semibold text-emerald-900 px-1">สรุปสถานะ</p>
-        ${dashboardHtml(dateFilteredOrders, DASHBOARD_STATUSES, o => o.status)}
+        <p class="text-sm font-semibold text-emerald-900 px-1">สรุปสถานะ${FILTER_OWNER_TYPE ? ` · <span class="text-amber-700">${OWNER_TYPE_STYLES[FILTER_OWNER_TYPE].label}</span>` : ''}</p>
+        ${dashboardHtml(_statusSummaryOrders, DASHBOARD_STATUSES, o => o.status)}
       </div>`;
 
     html += `
