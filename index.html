@@ -402,11 +402,12 @@ function orderCardHtml(order, idx, isAdmin) {
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
   const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
-  const _assignCls = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0";
-  // งาน Packing → เลือกคนขับในหน้า (panel เดียวกับเปลี่ยนคนขับ) · งานอื่น → ฟอร์ม assign เดิม
-  const assignDriverHtml = !needDriver ? '' : (order.jobType === 'Packing'
-    ? `<button onclick="event.stopPropagation(); openReassign('${escapeHtml(order.orderId)}')" class="${_assignCls}">${icon("user", 14)}หาคนขับ</button>`
-    : `<a href="${ASSIGN_DRIVER_URL}?orderId=${encodeURIComponent(order.orderId)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="${_assignCls}">${icon("user", 14)}หาคนขับ</a>`);
+  const assignDriverHtml = needDriver ? `
+    <a href="${ASSIGN_DRIVER_URL}?orderId=${encodeURIComponent(order.orderId)}" target="_blank" rel="noopener"
+       onclick="event.stopPropagation()"
+       class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0">
+      ${icon("user", 14)}หาคนขับ
+    </a>` : '';
 
   let detailHtml = '';
   if (expanded) {
