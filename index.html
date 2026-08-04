@@ -402,12 +402,11 @@ function orderCardHtml(order, idx, isAdmin) {
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
   const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
-  const assignDriverHtml = needDriver ? `
-    <a href="${ASSIGN_DRIVER_URL}?orderId=${encodeURIComponent(order.orderId)}" target="_blank" rel="noopener"
-       onclick="event.stopPropagation()"
-       class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0">
-      ${icon("user", 14)}หาคนขับ
-    </a>` : '';
+  const _assignCls = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0";
+  // งาน Packing → เลือกคนขับในหน้า (panel เดียวกับเปลี่ยนคนขับ) · งานอื่น → ฟอร์ม assign เดิม
+  const assignDriverHtml = !needDriver ? '' : (order.jobType === 'Packing'
+    ? `<button onclick="event.stopPropagation(); openReassign('${escapeHtml(order.orderId)}')" class="${_assignCls}">${icon("user", 14)}หาคนขับ</button>`
+    : `<a href="${ASSIGN_DRIVER_URL}?orderId=${encodeURIComponent(order.orderId)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="${_assignCls}">${icon("user", 14)}หาคนขับ</a>`);
 
   let detailHtml = '';
   if (expanded) {
@@ -846,6 +845,11 @@ async function openReassign(orderId){
   const list  = document.getElementById('reassign-list');
   document.getElementById('reassign-sub').textContent =
     `${_reassignCtx.orderId} · สวน ${_reassignCtx.garden || '—'} · คนขับปัจจุบัน ${_reassignCtx.driver || '—'}`;
+  const _hasDrv = !!(_reassignCtx.driver);
+  document.getElementById('reassign-title').textContent = _hasDrv ? 'เปลี่ยนคนขับ' : 'จัดหา / มอบหมายคนขับ';
+  document.getElementById('reassign-sub').textContent = _hasDrv
+    ? `${_reassignCtx.orderId} · ${_reassignCtx.garden || '—'} · คนขับปัจจุบัน ${_reassignCtx.driver}`
+    : `${_reassignCtx.orderId} · ${_reassignCtx.garden || '—'} · เลือกคนขับที่จะมอบหมาย`;
   const s = document.getElementById('reassign-search'); if(s) s.value = '';
   modal.classList.remove('hidden');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลดรายชื่อคนขับ...</p>';
@@ -891,7 +895,10 @@ function closeReassign(){
 async function doReassign(idx){
   const d = (_reassignDrivers||[])[idx];
   if(!d || !_reassignCtx) return;
-  if(!confirm(`ยืนยันเปลี่ยนคนขับเป็น ${d.name}?\nระบบจะแจ้งคนขับเดิมว่าไม่ต้องทำงานนี้แล้ว และมอบหมายงานให้คนใหม่`)) return;
+  const _hasCur = !!(_reassignCtx && _reassignCtx.driver);
+  if(!confirm(_hasCur
+    ? `ยืนยันเปลี่ยนคนขับเป็น ${d.name}?\nระบบจะแจ้งคนขับเดิมว่าไม่ต้องทำงานนี้แล้ว และมอบหมายให้คนใหม่`
+    : `มอบหมายงานนี้ให้ ${d.name}?\nระบบจะแจ้งคนขับทันที`)) return;
   const list = document.getElementById('reassign-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเปลี่ยนคนขับ...</p>';
   try{
@@ -902,7 +909,7 @@ async function doReassign(idx){
     const r = await res.json();
     if(!r || !r.success){ alert('ไม่สำเร็จ: '+((r&&r.error)||'unknown')); _renderReassignList(''); return; }
     closeReassign();
-    alert(`✅ เปลี่ยนเป็น ${r.to} แล้ว\nแจ้งคนขับเดิมและคนใหม่เรียบร้อย`);
+    alert(_hasCur ? `✅ เปลี่ยนเป็น ${r.to} แล้ว\nแจ้งคนขับเดิมและคนใหม่เรียบร้อย` : `✅ มอบหมายให้ ${r.to} แล้ว · แจ้งคนขับเรียบร้อย`);
     loadOrders(true);
   }catch(e){
     alert('เกิดข้อผิดพลาด: '+(e.message||e)); _renderReassignList('');
@@ -983,7 +990,7 @@ init();
   <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] flex flex-col shadow-xl">
     <div class="px-4 pt-4 pb-3 border-b border-amber-100">
       <div class="flex items-center justify-between gap-2">
-        <h3 class="text-base font-bold text-emerald-900">เปลี่ยนคนขับ</h3>
+        <h3 id="reassign-title" class="text-base font-bold text-emerald-900">เปลี่ยนคนขับ</h3>
         <button onclick="closeReassign()" class="text-emerald-700/60 hover:text-emerald-900 text-xl leading-none">&times;</button>
       </div>
       <p id="reassign-sub" class="text-xs text-emerald-700/70 mt-1"></p>
