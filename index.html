@@ -825,35 +825,58 @@ function render() {
   document.getElementById('app').innerHTML = html;
 }
 
+function _lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function _lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
 async function init() {
+  // ⚡ จำ uid เดิม → ยิง getOrderTracker ทันที (ขนานกับ LIFF init) ไม่ต้องรอ LINE เสร็จก่อน
+  const cachedUid = _lsGet('ssb_uid');
+  let pre = null;
+  if (cachedUid) { window._userId = cachedUid; pre = loadOrders(false, cachedUid); }
   try {
     await liff.init({ liffId: LIFF_ID });
     if (!liff.isLoggedIn()) { liff.login(); return; }
     const profile = await liff.getProfile();
     window._userId = profile.userId;
-    await loadOrders(false);
+    _lsSet('ssb_uid', profile.userId);
+    if (pre && cachedUid === profile.userId) { await pre; }   // uid ตรง → ใช้ผลที่โหลดขนานไปแล้ว
+    else { await loadOrders(false, profile.userId); }          // uid เปลี่ยน/ไม่มี cache → โหลดด้วย uid จริง
   } catch (e) {
     console.error(e);
-    document.getElementById('loading').innerHTML = `<p class="text-sm text-red-600 px-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message || String(e))}</p>`;
+    if (!pre) document.getElementById('loading').innerHTML = `<p class="text-sm text-red-600 px-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message || String(e))}</p>`;
   }
 }
 
-async function loadOrders(isRefresh) {
+async function loadOrders(isRefresh, uid) {
+  uid = uid || window._userId;
   const btn = document.getElementById('refresh-btn');
   if (isRefresh && btn) btn.querySelector('.refresh-icon').classList.add('spin');
 
+  // 💾 โหลดครั้งแรก + ยังไม่มีข้อมูลบนจอ → โชว์ cache ทันที (ไม่ต้องจ้อง spinner) แล้วค่อยอัปเดตของสด
+  if (!isRefresh && !ALL_ORDERS.length) {
+    try {
+      const c = JSON.parse(_lsGet('ssb_orders_' + uid) || 'null');
+      if (c && c.orders && c.orders.length) {
+        ALL_ORDERS = c.orders; CURRENT_ROLE = c.role || CURRENT_ROLE;
+        render();
+        document.getElementById('loading').style.display = 'none';
+      }
+    } catch (e) {}
+  }
+
   try {
-    const res = await fetch(`${GAS_URL}?action=getOrderTracker&userId=${window._userId}`);
+    const res = await fetch(`${GAS_URL}?action=getOrderTracker&userId=${uid}`);
     const data = await res.json();
 
     if (!data.success) {
-      document.getElementById('app').innerHTML = `<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-700 mt-6">${escapeHtml(data.error || 'เกิดข้อผิดพลาด')}</div>`;
+      if (!ALL_ORDERS.length) document.getElementById('app').innerHTML = `<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-700 mt-6">${escapeHtml(data.error || 'เกิดข้อผิดพลาด')}</div>`;
       document.getElementById('loading').style.display = 'none';
       return;
     }
 
     ALL_ORDERS = data.orders || [];
     CURRENT_ROLE = data.role;
+    _lsSet('ssb_orders_' + uid, JSON.stringify({ orders: ALL_ORDERS, role: CURRENT_ROLE, t: Date.now() }));
     render();
     document.getElementById('loading').style.display = 'none';
     // 🆕 นับคำขอ Packing ค้างจัดรถ — ยิงเบื้องหลัง ไม่บล็อกการแสดงออเดอร์ · เสร็จแล้วอัปเดตเฉพาะชิป
@@ -864,9 +887,9 @@ async function loadOrders(isRefresh) {
     }
   } catch (e) {
     console.error(e);
-    if (!isRefresh) {
-      document.getElementById('loading').innerHTML = `<p class="text-sm text-red-600 px-6 text-center">เชื่อมต่อไม่ได้</p>`;
-    }
+    // มีข้อมูล (cache) โชว์อยู่แล้ว → ไม่ต้องทับด้วยหน้า error · แค่เตือนเบาๆ
+    if (ALL_ORDERS.length) { toast('อัปเดตข้อมูลไม่สำเร็จ — แสดงข้อมูลล่าสุดที่มี'); }
+    else if (!isRefresh) { document.getElementById('loading').innerHTML = `<p class="text-sm text-red-600 px-6 text-center">เชื่อมต่อไม่ได้</p>`; }
   } finally {
     if (isRefresh && btn) setTimeout(() => btn.querySelector('.refresh-icon').classList.remove('spin'), 400);
   }
