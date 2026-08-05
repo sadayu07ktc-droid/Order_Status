@@ -167,7 +167,9 @@ let CURRENT_ROLE = '';
 let FILTER_STATUS = "ทั้งหมด";
 let FILTER_OWNER_TYPE = null;
 let FILTER_PACKING = false;              // 🆕 กรองเฉพาะงาน Packing (ประเภทงาน ไม่ใช่ผู้สั่ง)
+let LOADING = false;                     // 🆕 กำลังโหลดข้อมูลสด (ให้ปุ่มอัปเดตหมุน)
 let EXPANDED_IDS = new Set();
+function spinRefresh(on){ const b=document.getElementById('refresh-btn'); if(!b)return; const i=b.querySelector('.refresh-icon'); if(i) i.classList[on?'add':'remove']('spin'); }
 let EDITING_IDS = new Set();   // ออเดอร์ที่กำลังเปิดฟอร์มแก้ไข
 
 // วันที่วันนี้ในรูปแบบ yyyy-MM-dd (ตาม timezone เครื่องผู้ใช้)
@@ -745,7 +747,7 @@ function render() {
           <p class="text-emerald-100 text-sm mt-1">SSB Smart Supply · ${escapeHtml(roleLabel)}</p>
         </div>
         <button onclick="loadOrders(true)" id="refresh-btn" class="flex items-center gap-2 bg-white/15 hover:bg-white/25 transition-colors rounded-xl px-3 py-2 text-sm font-medium">
-          ${icon("refresh", 16, "refresh-icon")}อัปเดตข้อมูล
+          ${icon("refresh", 16, "refresh-icon" + (LOADING ? " spin" : ""))}${LOADING ? 'กำลังโหลด…' : 'อัปเดตข้อมูล'}
         </button>
       </div>
     </div>`;
@@ -854,10 +856,10 @@ async function init() {
 
 async function loadOrders(isRefresh, uid) {
   uid = uid || window._userId;
-  const btn = document.getElementById('refresh-btn');
-  if (isRefresh && btn) btn.querySelector('.refresh-icon').classList.add('spin');
+  LOADING = true;
+  spinRefresh(true);   // ปุ่มที่มีอยู่แล้ว → หมุนทันที (บอกว่ากำลังโหลดของสด)
 
-  // 💾 โหลดครั้งแรก + ยังไม่มีข้อมูลบนจอ → โชว์ cache ทันที (ไม่ต้องจ้อง spinner) แล้วค่อยอัปเดตของสด
+  // 💾 โหลดครั้งแรก + ยังไม่มีข้อมูลบนจอ → โชว์ cache ทันที แล้วค่อยอัปเดตของสด (ปุ่มยังหมุนอยู่เพราะ LOADING=true)
   if (!isRefresh && !ALL_ORDERS.length) {
     try {
       const c = JSON.parse(_lsGet('ssb_orders_' + uid) || 'null');
@@ -882,6 +884,7 @@ async function loadOrders(isRefresh, uid) {
     ALL_ORDERS = data.orders || [];
     CURRENT_ROLE = data.role;
     _lsSet('ssb_orders_' + uid, JSON.stringify({ orders: ALL_ORDERS, role: CURRENT_ROLE, t: Date.now() }));
+    LOADING = false;   // ได้ข้อมูลสดแล้ว → render ปุ่มแบบไม่หมุน
     render();
     document.getElementById('loading').style.display = 'none';
     // 🆕 นับคำขอ Packing ค้างจัดรถ — ยิงเบื้องหลัง ไม่บล็อกการแสดงออเดอร์ · เสร็จแล้วอัปเดตเฉพาะชิป
@@ -896,7 +899,8 @@ async function loadOrders(isRefresh, uid) {
     if (ALL_ORDERS.length) { toast('อัปเดตข้อมูลไม่สำเร็จ — แสดงข้อมูลล่าสุดที่มี'); }
     else if (!isRefresh) { document.getElementById('loading').innerHTML = `<p class="text-sm text-red-600 px-6 text-center">เชื่อมต่อไม่ได้</p>`; }
   } finally {
-    if (isRefresh && btn) setTimeout(() => btn.querySelector('.refresh-icon').classList.remove('spin'), 400);
+    LOADING = false;
+    setTimeout(() => spinRefresh(false), 300);   // หยุดหมุน (เผื่อ path ที่ไม่ได้ re-render เช่น error/cache)
   }
 }
 
