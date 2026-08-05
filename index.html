@@ -283,6 +283,45 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ── 🔔 Toast + Modal ธีมเดียวกับระบบ (แทน alert()/confirm() โบราณ) ──
+function toast(msg, type) {
+  let wrap = document.getElementById('ssbToastWrap');
+  if (!wrap) { wrap = document.createElement('div'); wrap.id = 'ssbToastWrap'; wrap.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-[120] flex flex-col gap-2 items-center pointer-events-none'; document.body.appendChild(wrap); }
+  const bad = type === 'error' || /❌|ไม่สำเร็จ|ผิดพลาด|ข้อผิดพลาด|ไม่พบ|error/i.test(String(msg || ''));
+  const t = document.createElement('div');
+  t.className = (bad ? 'bg-red-600' : 'bg-emerald-700') + ' text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-lg max-w-[90vw] whitespace-pre-line text-center opacity-0 transition-opacity duration-200';
+  t.textContent = msg;
+  wrap.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = '1'; });
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 3400);
+}
+function confirmModal(opt) {
+  opt = opt || {};
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'fixed inset-0 z-[121] flex items-center justify-center bg-black/40 p-4';
+    ov.innerHTML =
+      '<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-3" role="dialog" aria-modal="true">' +
+        '<div class="flex items-start gap-3">' +
+          '<div class="text-2xl leading-none">' + (opt.icon || '❓') + '</div>' +
+          '<div class="flex-1 min-w-0"><p class="font-bold text-emerald-900">' + escapeHtml(opt.title || 'ยืนยัน?') + '</p>' +
+          (opt.msg ? '<p class="text-sm text-emerald-800/80 mt-1 whitespace-pre-line">' + escapeHtml(opt.msg) + '</p>' : '') + '</div>' +
+        '</div>' +
+        '<div class="flex gap-2 justify-end pt-1">' +
+          '<button data-x class="px-4 py-2 rounded-xl text-sm font-medium text-emerald-800 bg-amber-50 hover:bg-amber-100 border border-amber-200">' + escapeHtml(opt.cancelText || 'ยกเลิก') + '</button>' +
+          '<button data-ok class="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800">' + escapeHtml(opt.okText || 'ยืนยัน') + '</button>' +
+        '</div></div>';
+    const done = v => { ov.remove(); document.removeEventListener('keydown', onkey); resolve(v); };
+    const onkey = e => { if (e.key === 'Escape') done(false); else if (e.key === 'Enter') done(true); };
+    ov.querySelector('[data-ok]').onclick = () => done(true);
+    ov.querySelector('[data-x]').onclick = () => done(false);
+    ov.onclick = e => { if (e.target === ov) done(false); };
+    document.addEventListener('keydown', onkey);
+    document.body.appendChild(ov);
+    ov.querySelector('[data-ok]').focus();
+  });
+}
+
 // ── ปุ่มตอบแทนลานเท — เฉพาะ Admin และออเดอร์สถานะ "แจ้งเตือนแอดมิน" ──
 function rampApproveHtml(order, isAdmin) {
   if (!isAdmin || order.status !== 'แจ้งเตือนแอดมิน') return '';
@@ -373,11 +412,11 @@ async function submitEdit(orderId, btn) {
       EDITING_IDS.delete(orderId);
       setTimeout(() => loadOrders(true), 800); // โหลดใหม่ให้เห็นค่าที่แก้
     } else {
-      alert('แก้ไขไม่สำเร็จ: ' + ((data && data.error) || 'ไม่ทราบสาเหตุ'));
+      toast('แก้ไขไม่สำเร็จ: ' + ((data && data.error) || 'ไม่ทราบสาเหตุ'));
       btn.disabled = false; btn.innerHTML = '💾 บันทึก';
     }
   } catch (e) {
-    alert('เกิดข้อผิดพลาด: ' + (e.message || e));
+    toast('เกิดข้อผิดพลาด: ' + (e.message || e));
     btn.disabled = false; btn.innerHTML = '💾 บันทึก';
   }
 }
@@ -662,7 +701,7 @@ function packingChipHtml() {
   const url = PACKING_URL + (PACKING_URL.indexOf('?') >= 0 ? '&' : '?') + 'uid=' + encodeURIComponent(window._userId || '');
   return PACKING_URL
     ? `<a id="pkchip" href="${escapeHtml(url)}" target="_blank" rel="noopener" class="${cls}" onclick="event.stopPropagation()">${inner}</a>`
-    : `<button id="pkchip" type="button" onclick="alert('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
+    : `<button id="pkchip" type="button" onclick="toast('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
 }
 
 // อัปเดตเฉพาะชิป Packing (หลัง getPkSummary กลับมา) — ไม่ re-render ทั้งหน้า
@@ -835,7 +874,7 @@ async function loadOrders(isRefresh) {
 
 // ── ตอบแทนลานเท (มีปาล์ม/ไม่มีปาล์ม) จากหน้า tracker ──────────
 async function approveRamp(orderId, answer, btn) {
-  if (!confirm(`ยืนยันตอบแทนลานเท: "${answer}" ?`)) return;
+  if (!(await confirmModal({ icon:'🌴', title:'ยืนยันตอบแทนลานเท?', msg:'ตอบ: '+answer, okText:'ยืนยัน' }))) return;
   const wrap = btn.closest('.ramp-approve');
   wrap.querySelectorAll('button').forEach(b => b.disabled = true);
   btn.innerHTML = 'กำลังบันทึก...';
@@ -856,11 +895,11 @@ async function approveRamp(orderId, answer, btn) {
       wrap.innerHTML = `<p class="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">${icon("check", 15)}บันทึก "${escapeHtml(answer)}" และกระจายงานให้คนขับแล้ว</p>`;
       setTimeout(() => loadOrders(true), 1200); // โหลดใหม่ ให้สถานะอัปเดต
     } else {
-      alert('ไม่สำเร็จ: ' + ((data && data.error) || 'unknown'));
+      toast('ไม่สำเร็จ: ' + ((data && data.error) || 'unknown'));
       render(); // คืนปุ่มกลับ
     }
   } catch (e) {
-    alert('เกิดข้อผิดพลาด: ' + (e.message || e));
+    toast('เกิดข้อผิดพลาด: ' + (e.message || e));
     render();
   }
 }
@@ -870,7 +909,7 @@ let _reassignCtx = null, _reassignDrivers = null;
 
 async function openReassign(orderId){
   const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
-  if(!o){ alert('ไม่พบออเดอร์ ' + orderId); return; }
+  if(!o){ toast('ไม่พบออเดอร์ ' + orderId); return; }
   _reassignCtx = { orderId: o.orderId, garden: o.gardenName || o.pickup || '', driver: o.driverName || '' };
   const modal = document.getElementById('reassign-modal');
   const list  = document.getElementById('reassign-list');
@@ -927,9 +966,9 @@ async function doReassign(idx){
   const d = (_reassignDrivers||[])[idx];
   if(!d || !_reassignCtx) return;
   const _hasCur = !!(_reassignCtx && _reassignCtx.driver);
-  if(!confirm(_hasCur
-    ? `ยืนยันเปลี่ยนคนขับเป็น ${d.name}?\nระบบจะแจ้งคนขับเดิมว่าไม่ต้องทำงานนี้แล้ว และมอบหมายให้คนใหม่`
-    : `มอบหมายงานนี้ให้ ${d.name}?\nระบบจะแจ้งคนขับทันที`)) return;
+  if(!(await confirmModal(_hasCur
+    ? { icon:'🔄', title:`เปลี่ยนคนขับเป็น ${d.name}?`, msg:'ระบบจะแจ้งคนขับเดิมว่าไม่ต้องทำงานนี้แล้ว และมอบหมายให้คนใหม่', okText:'เปลี่ยนคนขับ' }
+    : { icon:'🧑‍✈️', title:`มอบหมายงานนี้ให้ ${d.name}?`, msg:'ระบบจะแจ้งคนขับทันที', okText:'มอบหมาย' }))) return;
   const list = document.getElementById('reassign-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเปลี่ยนคนขับ...</p>';
   try{
@@ -938,12 +977,12 @@ async function doReassign(idx){
       orderId: _reassignCtx.orderId, driverUid: d.uid, driverName: d.name, plate: d.plate
     })});
     const r = await res.json();
-    if(!r || !r.success){ alert('ไม่สำเร็จ: '+((r&&r.error)||'unknown')); _renderReassignList(''); return; }
+    if(!r || !r.success){ toast('ไม่สำเร็จ: '+((r&&r.error)||'unknown')); _renderReassignList(''); return; }
     closeReassign();
-    alert(_hasCur ? `✅ เปลี่ยนเป็น ${r.to} แล้ว\nแจ้งคนขับเดิมและคนใหม่เรียบร้อย` : `✅ มอบหมายให้ ${r.to} แล้ว · แจ้งคนขับเรียบร้อย`);
+    toast(_hasCur ? `✅ เปลี่ยนเป็น ${r.to} แล้ว\nแจ้งคนขับเดิมและคนใหม่เรียบร้อย` : `✅ มอบหมายให้ ${r.to} แล้ว · แจ้งคนขับเรียบร้อย`);
     loadOrders(true);
   }catch(e){
-    alert('เกิดข้อผิดพลาด: '+(e.message||e)); _renderReassignList('');
+    toast('เกิดข้อผิดพลาด: '+(e.message||e)); _renderReassignList('');
   }
 }
 
@@ -951,7 +990,7 @@ async function doReassign(idx){
 let _addJobCtx = null, _pkWaiting = null, _rampList = null, _addJobMode = 'packing';
 async function openAddJob(orderId){
   const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
-  if(!o){ alert('ไม่พบออเดอร์ ' + orderId); return; }
+  if(!o){ toast('ไม่พบออเดอร์ ' + orderId); return; }
   _addJobCtx = { orderId: o.orderId, driver: o.driverName || '' };
   _addJobMode = 'packing'; _pkWaiting = null; _rampList = null;
   document.getElementById('addjob-sub').textContent = `${o.orderId} · คนขับ ${o.driverName || '—'} · เลือกงานที่จะเพิ่มเข้าทริป`;
@@ -1001,17 +1040,17 @@ async function doAddJob(mode, idx){
   let payload, label;
   if(mode==='packing'){ const q=(_pkWaiting||[])[idx]; if(!q) return; payload={source:'packing',requestId:q.request_id}; label=`${q.customer_name} → ${q.destination}`; }
   else { const r=(_rampList||[])[idx]; if(!r) return; payload={source:'ramp',rampCode:r.code,rampName:r.name}; label=`รับปาล์มขากลับ · ${r.name||r.code}`; }
-  if(!confirm(`เพิ่มงาน "${label}" เข้าทริปของ ${_addJobCtx.driver}?\nคนขับจะได้รับงานนี้เพิ่มทันที`)) return;
+  if(!(await confirmModal({ icon:'➕', title:'เพิ่มงานเข้าทริป?', msg:`งาน: ${label}\nคนขับ: ${_addJobCtx.driver} — จะได้รับงานนี้เพิ่มทันที`, okText:'เพิ่มงาน' }))) return;
   const list = document.getElementById('addjob-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเพิ่มงาน...</p>';
   try{
     const res = await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(Object.assign({action:'addJobToTrip', userId: window._userId, baseOrderId: _addJobCtx.orderId}, payload))});
     const txt = await res.text(); let d=null; try{ d=JSON.parse(txt); }catch(_){}
-    if(d && d.success){ closeAddJob(); alert(`✅ เพิ่มงาน ${d.orderId} เข้าทริปแล้ว · แจ้งคนขับ ${d.driverName||''} เรียบร้อย`); loadOrders(true); return; }
-    if(d && !d.success){ alert('ไม่สำเร็จ: '+(d.error||'unknown')); _renderAddJobList(); return; }
-    closeAddJob(); alert('✅ ส่งคำขอเพิ่มงานแล้ว · กำลังรีเฟรช'); setTimeout(()=>loadOrders(true), 1500);
-  }catch(e){ alert('ผิดพลาด: '+(e.message||e)); _renderAddJobList(); }
+    if(d && d.success){ closeAddJob(); toast(`✅ เพิ่มงาน ${d.orderId} เข้าทริปแล้ว · แจ้งคนขับ ${d.driverName||''} เรียบร้อย`); loadOrders(true); return; }
+    if(d && !d.success){ toast('ไม่สำเร็จ: '+(d.error||'unknown')); _renderAddJobList(); return; }
+    closeAddJob(); toast('✅ ส่งคำขอเพิ่มงานแล้ว · กำลังรีเฟรช'); setTimeout(()=>loadOrders(true), 1500);
+  }catch(e){ toast('ผิดพลาด: '+(e.message||e)); _renderAddJobList(); }
 }
 
 init();
