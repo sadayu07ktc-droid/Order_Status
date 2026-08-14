@@ -468,12 +468,11 @@ function orderCardHtml(order, idx, isAdmin) {
     if (showDriver) {
       // แอดมินเปลี่ยนคนขับได้ ตราบใดที่ยังไม่เสร็จ/ยกเลิก
       const canReassign = isAdmin && !["เสร็จงาน", "ยกเลิก"].includes(order.status);
-      // งานที่ "วิ่งแล้ว" (คนขับออกเดินทาง+) → ปุ่มเทา + ถามยืนยัน (ยังเผื่อเคสรถเสียต้องสลับ) · ยังไม่ออก = ฟ้าปกติ
+      // งานที่ "วิ่งแล้ว" (คนขับออกเดินทาง+) → ปุ่มเทา + ถามยืนยัน (modal สวย ไม่ใช่ confirm โบราณ) · ยังไม่ออก = ฟ้าปกติ
       const runningStarted = ["เริ่มงานแล้ว", "ถึงลานวางกระบะ", "ถึงลูกค้า", "ออกจากลูกค้า", "ถึงลานขากลับ"].includes(order.status);
       const reBtnCls = runningStarted ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-blue-600 text-white hover:bg-blue-700';
-      const reGuard = runningStarted ? "if(!confirm('งานวิ่งแล้ว — เปลี่ยนคนขับเฉพาะกรณีจำเป็น เช่น รถเสีย ยืนยันไหม?'))return;" : "";
       const reassignBtn = canReassign ? `
-        <button onclick="event.stopPropagation(); ${reGuard} openReassign('${escapeHtml(order.orderId)}')"
+        <button onclick="event.stopPropagation(); reassignGuarded('${escapeHtml(order.orderId)}', ${runningStarted})"
           class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg ${reBtnCls} text-xs font-semibold transition-colors"${runningStarted ? ' title="งานวิ่งแล้ว — เปลี่ยนเฉพาะกรณีจำเป็น"' : ''}>
           ${icon("refresh", 12)}เปลี่ยนคนขับ</button>` : '';
       const addJobBtn = canReassign ? `
@@ -989,6 +988,15 @@ async function approveRamp(orderId, answer, btn) {
 // ── เปลี่ยนคนขับ (แอดมิน) ────────────────────────────────
 let _reassignCtx = null, _reassignDrivers = null;
 
+// เปลี่ยนคนขับ — งานวิ่งแล้วถาม modal สวยก่อน (แทน confirm โบราณ) · ยังไม่ออก = เปิดเลย
+function reassignGuarded(orderId, needConfirm){
+  if(!needConfirm){ openReassign(orderId); return; }
+  confirmModal({
+    icon:'🔄', title:'งานวิ่งแล้ว — ยืนยันเปลี่ยนคนขับ?',
+    msg:'ควรเปลี่ยนเฉพาะกรณีจำเป็น เช่น รถเสียกลางทาง',
+    okText:'เปลี่ยนคนขับ', cancelText:'ยกเลิก'
+  }).then(function(ok){ if(ok) openReassign(orderId); });
+}
 async function openReassign(orderId){
   const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
   if(!o){ toast('ไม่พบออเดอร์ ' + orderId); return; }
