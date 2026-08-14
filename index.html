@@ -164,6 +164,7 @@ const OWNER_TYPE_ORDER = ["Owner", "Team", "Ramp", "Admin"];
 
 let ALL_ORDERS = [];
 let CURRENT_ROLE = '';
+let FLEET = {};   // ตำแหน่งรถสด (getFleetPositions) — key = ทะเบียนหัว
 let FILTER_STATUS = "ทั้งหมด";
 let FILTER_OWNER_TYPE = null;
 let FILTER_PACKING = false;              // 🆕 กรองเฉพาะงาน Packing (ประเภทงาน ไม่ใช่ผู้สั่ง)
@@ -510,6 +511,7 @@ function orderCardHtml(order, idx, isAdmin) {
         </div>
         ${editSectionHtml(order)}
         ${driverHtml}
+        ${fleetLineHtml(order)}
         ${rampHtml}
         ${rampApproveHtml(order, isAdmin)}
       </div>`;
@@ -718,6 +720,39 @@ function refreshPackingChip() {
   if (el) el.outerHTML = packingChipHtml();
 }
 
+// ── ตำแหน่งรถสด (lazy) — ยิงเบื้องหลังหลังโหลดออเดอร์ · ไม่บล็อกหน้า ──
+async function loadFleet() {
+  try {
+    const res = await fetch(`${GAS_URL}?action=getFleetPositions&userId=${encodeURIComponent(window._userId || '')}`);
+    const d = await res.json();
+    if (d && d.ok && d.trucks) { FLEET = d.trucks; render(); }
+  } catch (e) {}
+}
+
+// การ์ดตำแหน่งรถ (เฉพาะออเดอร์ที่กำลังวิ่ง + มีข้อมูล GPS) — วิ่ง/จอด/ดับ + ทิศเข้า/ออก + โลเคชั่น
+function fleetLineHtml(order) {
+  const inTransit = ["รับงานแล้ว", "เริ่มงานแล้ว", "ถึงลูกค้า"].includes(order.status);
+  const plate = String(order.plate || '').split(',')[0].trim();
+  if (!inTransit || !plate) return '';
+  const t = FLEET[plate];
+  if (!t) return '';
+  const dot = t.gps === 'run' ? '🟢' : t.gps === 'idling' ? '🟡' : t.gps === 'park' ? '🔴' : '⚫';
+  let dir = '';
+  if (t.gps === 'run') {
+    if (t.direction === 'out') dir = `<span class="text-emerald-700 font-semibold">▶ วิ่งออกไป${t.dirTo ? ' → ' + escapeHtml(t.dirTo) : ''}</span>`;
+    else if (t.direction === 'back') dir = `<span class="text-sky-700 font-semibold">◀ วิ่งกลับ${t.dirFrom ? ' จาก ' + escapeHtml(t.dirFrom) : ''}</span>`;
+    else dir = `<span class="text-emerald-700 font-semibold">● วิ่งอยู่</span>`;
+  }
+  const locStr = [t.loc, t.prov].filter(Boolean).map(escapeHtml).join(' ');
+  const dist = (t.distFactory != null) ? ` · ห่างโรงงาน ${escapeHtml(String(t.distFactory))} กม.` : '';
+  const maps = (t.lat && t.lon) ? ` · <a href="https://www.google.com/maps?q=${t.lat},${t.lon}" target="_blank" rel="noopener" class="text-blue-600 underline">แผนที่</a>` : '';
+  return `
+    <div class="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-sm text-emerald-900">
+      <span class="font-semibold">${dot} รถ ${escapeHtml(plate)}:</span> ${escapeHtml(t.gpsText || '')}${t.speed ? ` (${escapeHtml(String(t.speed))} กม./ชม.)` : ''} ${dir}
+      <div class="text-xs text-emerald-800/70 mt-0.5">📍 ${locStr || '—'}${dist} · GPS ${escapeHtml(t.ping || '—')}${maps}</div>
+    </div>`;
+}
+
 function render() {
   const isAdmin = CURRENT_ROLE === 'Admin';
 
@@ -902,6 +937,7 @@ async function loadOrders(isRefresh, uid) {
       fetch(`${GAS_URL}?action=getPkSummary`).then(r => r.json()).then(pk => {
         if (pk && pk.ok) { PK_PENDING = pk.waiting; refreshPackingChip(); }
       }).catch(() => {});
+      loadFleet();   // ตำแหน่งรถสด (วิ่ง/จอด/ดับ + ทิศ) — เบื้องหลัง เติมบนการ์ดเมื่อได้ข้อมูล
     }
   } catch (e) {
     console.error(e);
