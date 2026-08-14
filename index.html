@@ -836,6 +836,13 @@ function _lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null;
 function _lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 
 async function init() {
+  // 🔧 dev/test override: ?uid=Uxxxx → เข้าดูในฐานะ uid นั้น (ข้าม LINE login) สำหรับแอดมินเทส
+  const qUid = new URLSearchParams(location.search).get('uid');
+  if (qUid && /^U[0-9a-f]{32}$/i.test(qUid)) {
+    window._userId = qUid; _lsSet('ssb_uid', qUid);
+    await loadOrders(false, qUid);
+    return;   // ไม่เรียก liff.login() → เปิดในเบราว์เซอร์ปกติได้เลย
+  }
   // ⚡ จำ uid เดิม → ยิง getOrderTracker ทันที (ขนานกับ LIFF init) ไม่ต้องรอ LINE เสร็จก่อน
   const cachedUid = _lsGet('ssb_uid');
   let pre = null;
