@@ -75,6 +75,18 @@ const FLOW_STEPS = [
   { key: "เสร็จงาน", label: "จัดส่งสำเร็จ", icon: "home" },
 ];
 
+// ไทม์ไลน์ dynamic: ออเดอร์แวะลาน → แทรก แวะวางกระบะ(ขาไป) หลังออกเดินทาง + รับปาล์มกลับ(ขากลับ) หลังออกจากลูกค้า
+function flowStepsFor(order) {
+  if (!order || !order.hasRamp) return FLOW_STEPS;
+  const out = [];
+  FLOW_STEPS.forEach(function (s) {
+    out.push(s);
+    if (s.key === "เริ่มงานแล้ว") out.push({ key: "ถึงลานวางกระบะ", label: "แวะวางกระบะ", icon: "warehouse" });
+    if (s.key === "ออกจากลูกค้า") out.push({ key: "ถึงลานขากลับ", label: "รับปาล์มกลับ", icon: "warehouse" });
+  });
+  return out;
+}
+
 const EXCEPTION_STATUSES = {
   "ยกเลิก": { label: "ยกเลิก", icon: "x", tone: "danger" },
   "รออนุมัติยกเลิก": { label: "รออนุมัติยกเลิก", icon: "clock", tone: "amber" },
@@ -456,7 +468,7 @@ function orderCardHtml(order, idx, isAdmin) {
   if (expanded) {
     let tlHtml;
     if (isAdmin) {
-      tlHtml = timelineHtml(order.status, order.timestamps, FLOW_STEPS, order.cancelReason, order.checkinSource);
+      tlHtml = timelineHtml(order.status, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource);
     } else {
       tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
     }
@@ -497,10 +509,17 @@ function orderCardHtml(order, idx, isAdmin) {
 
     let rampHtml = '';
     if (isAdmin && order.rampInfo) {
+      // ปุ่มเบรคแวะลาน: โชว์เมื่อ ยังแวะลานอยู่ (hasRamp) + งานยังไม่จบ/ยกเลิก
+      const canBrakeRamp = order.hasRamp && !["เสร็จงาน", "ยกเลิก"].includes(order.status);
+      const brakeBtn = canBrakeRamp ? `
+        <button onclick="event.stopPropagation(); cancelRampStop('${escapeHtml(order.orderId)}')"
+          class="mt-2 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700 transition-colors">
+          ⛔ ยกเลิกแวะลาน (ไม่มีปาล์ม)</button>` : '';
       rampHtml = `
-        <p class="text-sm bg-white border border-amber-200 rounded-xl px-3 py-2 text-amber-900">
+        <div class="text-sm bg-white border border-amber-200 rounded-xl px-3 py-2 text-amber-900">
           ${icon("warehouse", 14, "inline -mt-0.5 mr-1.5")}${escapeHtml(order.rampInfo)}
-        </p>`;
+          ${brakeBtn}
+        </div>`;
     }
 
     detailHtml = `
@@ -987,6 +1006,25 @@ async function approveRamp(orderId, answer, btn) {
 
 // ── เปลี่ยนคนขับ (แอดมิน) ────────────────────────────────
 let _reassignCtx = null, _reassignDrivers = null;
+
+// แอดมินเบรคแวะลาน (ไม่มีปาล์ม) → คนขับปิดงานจบได้ ไม่ต้องดรอปเอง
+async function cancelRampStop(orderId){
+  const ok = await confirmModal({
+    icon:'⛔', title:'ยกเลิกแวะลาน?',
+    msg:'ใช้เมื่อถึงลานแล้วไม่มีปาล์ม — ระบบจะตัดจุดแวะลาน แจ้งคนขับ ให้ปิดงานได้ตามปกติ',
+    okText:'ยกเลิกแวะลาน', cancelText:'ไม่'
+  });
+  if(!ok) return;
+  try{
+    toast('กำลังยกเลิกแวะลาน…');
+    const res = await fetch(GAS_URL, {method:'POST', redirect:'follow', body: JSON.stringify({
+      action:'cancelRampStop', userId: window._userId, orderId: orderId
+    })});
+    const d = await res.json();
+    if(d && d.success){ toast('✅ ยกเลิกแวะลานแล้ว — แจ้งคนขับแล้ว'); loadOrders(true); }
+    else toast('❌ '+((d&&d.error)||'ไม่สำเร็จ'));
+  }catch(e){ toast('❌ '+e.message); }
+}
 
 // เปลี่ยนคนขับ — งานวิ่งแล้วถาม modal สวยก่อน (แทน confirm โบราณ) · ยังไม่ออก = เปิดเลย
 function reassignGuarded(orderId, needConfirm){
