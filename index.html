@@ -506,6 +506,7 @@ function orderCardHtml(order, idx, isAdmin) {
           <span><span class="font-medium text-emerald-900">วันที่:</span> ${escapeHtml(fmtDMY(order.date))} ${escapeHtml(order.time || '')}</span>
           <span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")}</span>
           <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>
+          ${order.billName ? `<span><span class="font-medium text-emerald-900">ชื่อในบิล:</span> ${escapeHtml(order.billName)}</span>` : ""}
         </div>
         ${editSectionHtml(order)}
         ${driverHtml}
