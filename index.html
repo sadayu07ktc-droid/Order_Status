@@ -837,9 +837,11 @@ function _lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 
 async function init() {
   // 🔧 dev/test override: ?uid=Uxxxx → เข้าดูในฐานะ uid นั้น (ข้าม LINE login) สำหรับแอดมินเทส
+  //    ephemeral: ไม่เขียน cache + ล้าง cache เก่าทิ้ง → ครั้งต่อไป (ไม่มี ?uid) ล็อกอินจริงใหม่ ไม่ติดค้าง
   const qUid = new URLSearchParams(location.search).get('uid');
   if (qUid && /^U[0-9a-f]{32}$/i.test(qUid)) {
-    window._userId = qUid; _lsSet('ssb_uid', qUid);
+    try { localStorage.removeItem('ssb_uid'); } catch(e) {}
+    window._userId = qUid;
     await loadOrders(false, qUid);
     return;   // ไม่เรียก liff.login() → เปิดในเบราว์เซอร์ปกติได้เลย
   }
