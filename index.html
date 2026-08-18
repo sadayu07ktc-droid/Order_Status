@@ -337,6 +337,31 @@ function confirmModal(opt) {
   });
 }
 
+// 📄 modal ดูใบชั่งน้ำหนัก (ลูกค้า/ลาน/โรงงาน) — เปิดรูปในแท็บใหม่
+function openWeighSlips(orderId) {
+  const o = (ALL_ORDERS || []).find(x => x.orderId === orderId);
+  if (!o || !o.weighSlips || !o.weighSlips.length) { toast('ยังไม่มีใบชั่งครับ'); return; }
+  const rows = o.weighSlips.map(function (s) {
+    const url = String(s.url || '').replace(/"/g, '%22');
+    return `<div class="flex items-center justify-between gap-3 border-t border-amber-100 py-2.5">
+      <div class="min-w-0"><div class="font-semibold text-emerald-900">${escapeHtml(s.label)}</div>
+      ${s.net ? `<div class="text-xs text-emerald-700/70">น้ำหนักสุทธิ ${escapeHtml(String(s.net))} กก.</div>` : ''}</div>
+      <a href="${url}" target="_blank" rel="noopener" class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">เปิดรูป</a>
+    </div>`;
+  }).join('');
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-[121] flex items-center justify-center bg-black/40 p-4';
+  ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-between mb-1"><p class="font-bold text-emerald-900">📄 ใบชั่งน้ำหนัก</p>
+      <button data-x class="text-emerald-700 text-2xl leading-none px-1">×</button></div>
+    <p class="text-xs text-amber-700/70 mb-1 break-all">${escapeHtml(orderId)}</p>
+    ${rows}</div>`;
+  const close = () => ov.remove();
+  ov.querySelector('[data-x]').onclick = close;
+  ov.onclick = e => { if (e.target === ov) close(); };
+  document.body.appendChild(ov);
+}
+
 // ── ปุ่มตอบแทนลานเท — เฉพาะ Admin และออเดอร์สถานะ "แจ้งเตือนแอดมิน" ──
 function rampApproveHtml(order, isAdmin) {
   if (!isAdmin || order.status !== 'แจ้งเตือนแอดมิน') return '';
@@ -454,6 +479,10 @@ function orderCardHtml(order, idx, isAdmin) {
   }
 
   const badgeHtml = isAdmin ? statusBadgeHtml(order.status) : customerStatusBadgeHtml(order.status);
+  // 📄 ชิปใบชั่งน้ำหนัก — โชว์เมื่อชั่งแล้ว (มีรูปใบชั่งอย่างน้อย 1 จุด)
+  const slipChipHtml = (order.weighSlips && order.weighSlips.length)
+    ? `<button onclick="event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="flex items-center gap-1 shrink-0 px-2 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-bold hover:bg-amber-200 transition-colors" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</button>`
+    : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
   const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
@@ -555,6 +584,7 @@ function orderCardHtml(order, idx, isAdmin) {
         </div>
         ${assignDriverHtml}
         <div class="flex items-center gap-2 shrink-0 ml-auto">
+          ${slipChipHtml}
           ${badgeHtml}
           ${icon("chevron", 18, `text-amber-400 transition-transform ${expanded ? "rotate-90" : ""}`)}
         </div>
