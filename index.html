@@ -481,7 +481,7 @@ function orderCardHtml(order, idx, isAdmin) {
   const badgeHtml = isAdmin ? statusBadgeHtml(order.status) : customerStatusBadgeHtml(order.status);
   // 📄 ชิปใบชั่งน้ำหนัก — โชว์เมื่อชั่งแล้ว (มีรูปใบชั่งอย่างน้อย 1 จุด)
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
-    ? `<button onclick="event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="flex items-center justify-center shrink-0 w-8 h-8 rounded-lg bg-amber-100 text-amber-800 text-base hover:bg-amber-200 transition-colors" title="ดูใบชั่งน้ำหนัก (${order.weighSlips.length})">📄</button>`
+    ? `<button onclick="event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</button>`
     : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
@@ -578,13 +578,13 @@ function orderCardHtml(order, idx, isAdmin) {
             <div class="flex items-center gap-2 flex-wrap">
               <p class="font-semibold text-emerald-900 break-all">${escapeHtml(order.orderId)}</p>
               ${chipHtml}
+              ${slipChipHtml}
             </div>
             <p class="text-sm text-amber-700/80 truncate">${escapeHtml(order.gardenName || '')}${order.billName ? ` · ${escapeHtml(order.billName)}` : ""}</p>
           </div>
         </div>
         ${assignDriverHtml}
         <div class="flex items-center gap-2 shrink-0 ml-auto">
-          ${slipChipHtml}
           ${badgeHtml}
           ${icon("chevron", 18, `text-amber-400 transition-transform ${expanded ? "rotate-90" : ""}`)}
         </div>
