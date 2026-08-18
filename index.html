@@ -571,20 +571,20 @@ function orderCardHtml(order, idx, isAdmin) {
   return `
     <div class="bg-white rounded-2xl border border-amber-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       ${barHtml}
-      <button onclick="toggleOrder('${escapeHtml(order.orderId)}')" class="w-full flex items-center justify-between gap-3 p-4 text-left flex-wrap sm:flex-nowrap">
+      <button onclick="toggleOrder('${escapeHtml(order.orderId)}')" class="w-full flex items-center justify-between gap-3 p-4 text-left">
         <div class="flex items-center gap-3 min-w-0">
           <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 shrink-0">${icon("package", 20)}</div>
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <p class="font-semibold text-emerald-900 break-all">${escapeHtml(order.orderId)}</p>
               ${chipHtml}
-              ${slipChipHtml}
             </div>
             <p class="text-sm text-amber-700/80 truncate">${escapeHtml(order.gardenName || '')}${order.billName ? ` · ${escapeHtml(order.billName)}` : ""}</p>
           </div>
         </div>
         ${assignDriverHtml}
         <div class="flex items-center gap-2 shrink-0 ml-auto">
+          ${slipChipHtml}
           ${badgeHtml}
           ${icon("chevron", 18, `text-amber-400 transition-transform ${expanded ? "rotate-90" : ""}`)}
         </div>
