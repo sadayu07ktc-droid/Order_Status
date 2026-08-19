@@ -6,6 +6,29 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<script>
+/* auto version-check: เทียบ ETag ไฟล์บนเซิร์ฟเวอร์กับที่ค้างในแคช
+   ถ้าเซิร์ฟเวอร์ใหม่กว่า → รีโหลดตัวเองด้วย ?v= (บัสต์แคช) อัตโนมัติ
+   ไม่ต้องล้างแคชเอง / ไม่ต้อง bump เลขเวอร์ชันเอง / กันลูปด้วย localStorage */
+(function(){
+  try {
+    var LS = 'ssb_htmlver';
+    fetch(location.pathname + '?_cc=' + Date.now(), { cache: 'no-store', method: 'HEAD' })
+      .then(function(r){
+        var tag = r.headers.get('ETag') || r.headers.get('Last-Modified') || '';
+        if (!tag) return;
+        var seen = null; try { seen = localStorage.getItem(LS); } catch(e){}
+        try { localStorage.setItem(LS, tag); } catch(e){}
+        if (seen && seen !== tag) {
+          var u = new URL(location.href);
+          u.searchParams.set('v', tag.replace(/[^A-Za-z0-9]/g, ''));  // เก็บ uid/param เดิมไว้
+          location.replace(u.toString());
+        }
+      })
+      .catch(function(){});
+  } catch(e){}
+})();
+</script>
 <title>ติดตามสถานะออเดอร์ — SSB</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
