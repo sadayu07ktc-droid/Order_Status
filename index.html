@@ -368,19 +368,25 @@ function openWeighSlips(orderId) {
   const o = (ALL_ORDERS || []).find(x => x.orderId === orderId);
   if (!o || !o.weighSlips || !o.weighSlips.length) { toast('ยังไม่มีใบชั่งครับ'); return; }
   const kg = function (x) { const n = Number(String(x == null ? '' : x).replace(/,/g, '')); return isFinite(n) && n ? n.toLocaleString() : ''; };
+  // แปลงลิงก์ Drive → ลิงก์รูปตรงที่ <img> โหลดได้
+  const imgUrl = function (u) { u = String(u || ''); const m = u.match(/\/d\/([a-zA-Z0-9_-]+)/) || u.match(/[?&]id=([a-zA-Z0-9_-]+)/); return m ? 'https://lh3.googleusercontent.com/d/' + m[1] : u; };
   const rows = o.weighSlips.map(function (s) {
-    const url = String(s.url || '').replace(/"/g, '%22');
+    const full = String(s.url || '').replace(/"/g, '%22');
+    const img  = imgUrl(s.url).replace(/"/g, '%22');
     const h = kg(s.heavy), l = kg(s.light), nt = kg(s.net);
     const lines =
       (h  ? `<div class="flex justify-between text-emerald-700/70"><span>🏋️ รถหนัก</span><span class="tabular-nums">${h} กก.</span></div>` : '') +
       (l  ? `<div class="flex justify-between text-emerald-700/70"><span>🪶 รถเบา</span><span class="tabular-nums">${l} กก.</span></div>` : '') +
       (nt ? `<div class="flex justify-between font-semibold text-emerald-900"><span>✅ สุทธิ</span><span class="tabular-nums">${nt} กก.</span></div>` : '');
     return `<div class="border-t border-amber-100 py-2.5">
-      <div class="flex items-center justify-between gap-3">
-        <div class="font-semibold text-emerald-900">${escapeHtml(s.label)}</div>
-        <a href="${url}" target="_blank" rel="noopener" class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">เปิดรูป</a>
-      </div>
-      ${lines ? `<div class="mt-1.5 space-y-0.5 text-xs">${lines}</div>` : ''}
+      <div class="font-semibold text-emerald-900 mb-1">${escapeHtml(s.label)}</div>
+      ${lines ? `<div class="space-y-0.5 text-xs mb-2">${lines}</div>` : ''}
+      ${img ? `<a href="${full}" target="_blank" rel="noopener" class="block" title="แตะเพื่อดูรูปเต็ม">
+        <img src="${img}" loading="lazy" referrerpolicy="no-referrer" alt="ใบชั่ง ${escapeHtml(s.label)}"
+          class="w-full rounded-lg border border-amber-200 bg-amber-50"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <span class="hidden items-center justify-center gap-1 py-2 text-xs text-emerald-700 underline">📄 โหลดรูปไม่ได้ — แตะเปิดในแท็บใหม่</span>
+      </a>` : ''}
     </div>`;
   }).join('');
   const m = o.weighMoney || null;
