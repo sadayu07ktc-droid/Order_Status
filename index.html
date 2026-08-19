@@ -523,8 +523,9 @@ function orderCardHtml(order, idx, isAdmin) {
 
   const badgeHtml = isAdmin ? statusBadgeHtml(order.status) : customerStatusBadgeHtml(order.status);
   // 📄 ชิปใบชั่งน้ำหนัก — โชว์เมื่อชั่งแล้ว (มีรูปใบชั่งอย่างน้อย 1 จุด)
+  // ⚠️ ต้องเป็น <a> ไม่ใช่ <button> — การ์ดเป็น <button> อยู่แล้ว (ซ้อน button = HTML invalid → parser ดีดออก layout เพี้ยน)
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
-    ? `<button onclick="event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</button>`
+    ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors cursor-pointer no-underline" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</a>`
     : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
