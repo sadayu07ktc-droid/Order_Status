@@ -631,12 +631,12 @@ function orderCardHtml(order, idx, isAdmin) {
   return `
     <div class="bg-white rounded-2xl border border-amber-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       ${barHtml}
-      <button onclick="toggleOrder('${escapeHtml(order.orderId)}')" class="w-full flex flex-nowrap items-center justify-between gap-3 p-4 text-left">
-        <div class="flex items-center gap-3 min-w-0 flex-1">
+      <button onclick="toggleOrder('${escapeHtml(order.orderId)}')" class="w-full flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-2 p-4 text-left">
+        <div class="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-auto">
           <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 shrink-0">${icon("package", 20)}</div>
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <p class="font-semibold text-emerald-900 break-all">${escapeHtml(order.orderId)}</p>
+              <p class="font-semibold text-emerald-900 break-words">${escapeHtml(order.orderId)}</p>
               ${chipHtml}
             </div>
             <p class="text-sm text-amber-700/80 truncate">${escapeHtml(order.gardenName || '')}${order.billName ? ` · ${escapeHtml(order.billName)}` : ""}</p>
