@@ -205,6 +205,7 @@ let CURRENT_ROLE = '';
 let FLEET = {};   // ตำแหน่งรถสด (getFleetPositions) — key = ทะเบียนหัว
 let FILTER_STATUS = "ทั้งหมด";
 let FILTER_OWNER_TYPE = null;
+let FILTER_DRIVER = null;                 // 🆕 กรองตามชื่อคนขับ (null = ทั้งหมด)
 let FILTER_PACKING = false;              // 🆕 กรองเฉพาะงาน Packing (ประเภทงาน ไม่ใช่ผู้สั่ง)
 let LOADING = false;                     // 🆕 กำลังโหลดข้อมูลสด (ให้ปุ่มอัปเดตหมุน)
 let EXPANDED_IDS = new Set();
@@ -729,17 +730,33 @@ function ownerTypeDashboardHtml(orders) {
 }
 
 function filterChipsHtml(chips) {
+  // 🆕 ชิปเลือกคนขับ (dropdown) — รายชื่อจากออเดอร์ที่มีในช่วงวันที่ที่เลือก
+  const drivers = [...new Set(ALL_ORDERS.filter(o => matchesDateFilter(o.date)).map(o => o.driverName).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'th'));
+  const drvActive = !!FILTER_DRIVER;
+  const drvCls = drvActive ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-emerald-800 hover:bg-amber-50";
+  const driverChip = `<select onchange="selectDriver(this.value)" title="กรองตามคนขับ"
+    class="px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors whitespace-nowrap cursor-pointer ${drvCls}">
+    <option value="">👤 คนขับทั้งหมด</option>
+    ${drivers.map(d => `<option value="${escapeHtml(d)}" ${FILTER_DRIVER === d ? 'selected' : ''}>👤 ${escapeHtml(d)}</option>`).join('')}
+  </select>`;
   return `<div class="flex flex-wrap gap-2 overflow-x-auto pb-1 scrollbar-thin">
     ${chips.map(c => {
       const active = FILTER_STATUS === c.key;
       const cls = active ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-emerald-800 hover:bg-amber-50";
       return `<button onclick="selectStatus('${escapeHtml(c.key)}')" class="px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors whitespace-nowrap ${cls}">${escapeHtml(c.label)}</button>`;
     }).join('')}
+    ${driverChip}
   </div>`;
 }
 
 function selectStatus(key) {
   FILTER_STATUS = (FILTER_STATUS === key) ? "ทั้งหมด" : key;
+  render();
+}
+
+function selectDriver(name) {
+  FILTER_DRIVER = name || null;
   render();
 }
 
@@ -876,6 +893,9 @@ function render() {
   }
   if (isAdmin && FILTER_PACKING) {
     orders = orders.filter(o => o.jobType === 'Packing');
+  }
+  if (isAdmin && FILTER_DRIVER) {
+    orders = orders.filter(o => o.driverName === FILTER_DRIVER);
   }
 
   const roleLabel = { Owner: 'เจ้าของสวน', Team: 'ทีมตัด', Ramp: 'ลานเท', Admin: 'แอดมิน' }[CURRENT_ROLE] || CURRENT_ROLE;
