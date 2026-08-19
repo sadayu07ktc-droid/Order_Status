@@ -954,11 +954,13 @@ function render() {
         ${ownerTypeDashboardHtml(dateFilteredOrders)}
       </div>`;
 
-    // สรุปสถานะ — กรองตาม "ผู้สั่ง" หรือ "Packing" ที่เลือก
-    const _filterLabel = FILTER_PACKING ? '📦 งาน Packing' : (FILTER_OWNER_TYPE ? OWNER_TYPE_STYLES[FILTER_OWNER_TYPE].label : '');
-    const _statusSummaryOrders = FILTER_PACKING
+    // สรุปสถานะ — กรองตาม "ผู้สั่ง"/"Packing" + "คนขับ" ที่เลือก (สรุปเปลี่ยนตามคนขับด้วย)
+    const _baseLabel = FILTER_PACKING ? '📦 งาน Packing' : (FILTER_OWNER_TYPE ? OWNER_TYPE_STYLES[FILTER_OWNER_TYPE].label : '');
+    const _filterLabel = [_baseLabel, FILTER_DRIVER ? '👤 ' + FILTER_DRIVER : ''].filter(Boolean).join(' · ');
+    let _statusSummaryOrders = FILTER_PACKING
       ? dateFilteredOrders.filter(o => o.jobType === 'Packing')
       : (FILTER_OWNER_TYPE ? dateFilteredOrders.filter(o => o.ownerType === FILTER_OWNER_TYPE) : dateFilteredOrders);
+    if (FILTER_DRIVER) _statusSummaryOrders = _statusSummaryOrders.filter(o => o.driverName === FILTER_DRIVER);
     const _labelCls = FILTER_PACKING ? 'text-fuchsia-700' : 'text-amber-700';
     html += `
       <div class="space-y-2">
