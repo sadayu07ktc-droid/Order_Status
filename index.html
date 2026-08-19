@@ -392,13 +392,22 @@ function openWeighSlips(orderId) {
       ${isFinite(price) && price ? `<div class="flex justify-between text-emerald-800"><span>💵 ราคา/กก.</span><span class="tabular-nums">${price.toLocaleString(undefined, { minimumFractionDigits: 2 })} บาท</span></div>` : ''}
       ${isFinite(total) && total ? `<div class="flex justify-between font-bold text-emerald-900 text-sm"><span>💰 ยอดรวม</span><span class="tabular-nums">${total.toLocaleString()} บาท</span></div>` : ''}
     </div>`;
+  // หัวสรุปออเดอร์ — ให้เหมือนการ์ดที่แจ้งเจ้าของสวนตอนจบงาน
+  const sum = `<div class="space-y-0.5 text-xs text-emerald-800 mb-2 pb-2 border-b border-amber-100">
+      ${o.gardenName ? `<div>🌳 สวน: <span class="font-medium text-emerald-900">${escapeHtml(o.gardenName)}</span></div>` : ''}
+      ${o.billName ? `<div>📋 ชื่อในบิล: <span class="font-medium text-emerald-900">${escapeHtml(o.billName)}</span></div>` : ''}
+      ${o.date ? `<div>📅 วันที่: ${escapeHtml(fmtDMY(o.date))}${o.time ? ' ' + escapeHtml(o.time) : ''}</div>` : ''}
+      ${o.pickup ? `<div>📍 จุดรับ: ${escapeHtml(o.pickup)}</div>` : ''}
+      ${o.binCount ? `<div>🧺 กระบะ: ${escapeHtml(String(o.binCount))} ใบ</div>` : ''}
+      ${o.driverName ? `<div>👤 คนขับ: ${escapeHtml(o.driverName)}${o.plate ? ` (${escapeHtml(o.plate)})` : ''}</div>` : ''}
+    </div>`;
   const ov = document.createElement('div');
   ov.className = 'fixed inset-0 z-[121] flex items-center justify-center bg-black/40 p-4';
   ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 max-h-[85vh] overflow-y-auto" role="dialog" aria-modal="true">
     <div class="flex items-center justify-between mb-1"><p class="font-bold text-emerald-900">📄 ใบชั่งน้ำหนัก</p>
       <button data-x class="text-emerald-700 text-2xl leading-none px-1">×</button></div>
-    <p class="text-xs text-amber-700/70 mb-1 break-all">${escapeHtml(orderId)}</p>
-    ${rows}${moneyHtml}</div>`;
+    <p class="text-xs text-amber-700/70 mb-2 break-all">${escapeHtml(orderId)}</p>
+    ${sum}${rows}${moneyHtml}</div>`;
   const close = () => ov.remove();
   ov.querySelector('[data-x]').onclick = close;
   ov.onclick = e => { if (e.target === ov) close(); };
