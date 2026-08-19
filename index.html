@@ -401,7 +401,7 @@ function openWeighSlips(orderId) {
   // หัวสรุปออเดอร์ — ให้เหมือนการ์ดที่แจ้งเจ้าของสวนตอนจบงาน
   const sum = `<div class="space-y-0.5 text-xs text-emerald-800 mb-2 pb-2 border-b border-amber-100">
       ${o.gardenName ? `<div>🌳 สวน: <span class="font-medium text-emerald-900">${escapeHtml(o.gardenName)}</span></div>` : ''}
-      ${o.billName ? `<div>📋 ชื่อในบิล: <span class="font-medium text-emerald-900">${escapeHtml(o.billName)}</span></div>` : ''}
+      <div>📋 ชื่อในบิล: <span class="font-medium text-emerald-900">${escapeHtml(o.billName || o.gardenName || '—')}</span></div>
       ${o.date ? `<div>📅 วันที่: ${escapeHtml(fmtDMY(o.date))}${o.time ? ' ' + escapeHtml(o.time) : ''}</div>` : ''}
       ${o.pickup ? `<div>📍 จุดรับ: ${escapeHtml(o.pickup)}</div>` : ''}
       ${o.binCount ? `<div>🧺 กระบะ: ${escapeHtml(String(o.binCount))} ใบ</div>` : ''}
