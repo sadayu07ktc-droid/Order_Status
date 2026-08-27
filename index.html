@@ -458,9 +458,12 @@ function editSectionHtml(order) {
   }
   const oid = escapeHtml(order.orderId);
   if (!EDITING_IDS.has(order.orderId)) {
-    return `<button onclick="event.stopPropagation(); toggleEdit('${oid}')"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors w-max">
-        ✏️ แก้ไขออเดอร์</button>`;
+    return `<div class="flex gap-2 flex-wrap">
+      <button onclick="event.stopPropagation(); toggleEdit('${oid}')"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors w-max">✏️ แก้ไขออเดอร์</button>
+      <button onclick="event.stopPropagation(); cancelOrderGuarded('${oid}')"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 transition-colors w-max">🚫 ยกเลิกออเดอร์</button>
+    </div>`;
   }
   const inp = 'mt-1 w-full border border-emerald-200 rounded-lg px-2.5 py-1.5 text-sm bg-white';
   return `
@@ -517,6 +520,34 @@ async function submitEdit(orderId, btn) {
   } catch (e) {
     toast('เกิดข้อผิดพลาด: ' + (e.message || e));
     btn.disabled = false; btn.innerHTML = '💾 บันทึก';
+  }
+}
+
+// 🆕 ยกเลิกออเดอร์ (เจ้าของ/ทีม/ลาน/แอดมิน) — เฉพาะยังไม่เริ่มงาน + ก่อนนัด 2 ชม. → แจ้งแอดมิน
+async function cancelOrderGuarded(orderId) {
+  const o = (ALL_ORDERS || []).find(x => x.orderId === orderId) || {};
+  const ok = await confirmModal({
+    icon: '🚫',
+    title: 'ยืนยันยกเลิกออเดอร์นี้?',
+    msg: `${orderId}${o.gardenName ? ' · ' + o.gardenName : ''} — ยกเลิกได้เฉพาะงานที่ยังไม่เริ่ม + ก่อนเวลานัด 2 ชม. · ระบบจะแจ้งแอดมิน`,
+    okText: '🚫 ยกเลิกออเดอร์', cancelText: 'ไม่ยกเลิก'
+  });
+  if (!ok) return;
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'cancelOrderOwner', userId: window._userId, orderId: orderId })
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      toast('🚫 ยกเลิกออเดอร์แล้ว');
+      setTimeout(() => loadOrders(true), 800);
+    } else {
+      toast('ยกเลิกไม่สำเร็จ: ' + ((data && data.error) || 'ไม่ทราบสาเหตุ'));
+    }
+  } catch (e) {
+    toast('เกิดข้อผิดพลาด: ' + (e.message || e));
   }
 }
 
