@@ -32,7 +32,7 @@
 <title>ติดตามสถานะออเดอร์ — SSB</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <!-- ssbFetch: อ่านจาก Supabase Edge ก่อน พลาด → GAS (ไฟล์อยู่ repo SSB-SMART-SUPPLY-DASHBOARD) · โหลดไม่ได้ก็ใช้ fetch เดิม -->
-<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261007f"></script>
+<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261007l"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -1101,7 +1101,7 @@ async function loadOrders(isRefresh, uid) {
     document.getElementById('loading').style.display = 'none';
     // 🆕 นับคำขอ Packing ค้างจัดรถ — ยิงเบื้องหลัง ไม่บล็อกการแสดงออเดอร์ · เสร็จแล้วอัปเดตเฉพาะชิป
     if (CURRENT_ROLE === 'Admin') {
-      fetch(`${GAS_URL}?action=getPkSummary`).then(r => r.json()).then(pk => {
+      (window.ssbFetch || fetch)(`${GAS_URL}?action=getPkSummary`).then(r => r.json()).then(pk => {
         if (pk && pk.ok) { PK_PENDING = pk.waiting; refreshPackingChip(); }
       }).catch(() => {});
       loadFleet();   // ตำแหน่งรถสด (วิ่ง/จอด/ดับ + ทิศ) — เบื้องหลัง เติมบนการ์ดเมื่อได้ข้อมูล
@@ -1199,7 +1199,7 @@ async function openReassign(orderId){
 
   if(!_reassignDrivers){
     try{
-      const r = await fetch(`${GAS_URL}?action=getReassignDrivers&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json());
+      const r = await (window.ssbFetch || fetch)(`${GAS_URL}?action=getReassignDrivers&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json());
       if(!r || !r.success) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ');
       _reassignDrivers = r.drivers || [];
     }catch(e){
@@ -1282,9 +1282,9 @@ async function loadAddJobList(){
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลด...</p>';
   try{
     if(_addJobMode==='packing'){
-      if(!_pkWaiting){ const r = await fetch(`${GAS_URL}?action=getPkWaiting&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _pkWaiting = r.requests||[]; }
+      if(!_pkWaiting){ const r = await (window.ssbFetch || fetch)(`${GAS_URL}?action=getPkWaiting&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _pkWaiting = r.requests||[]; }
     }else{
-      if(!_rampList){ const r = await fetch(`${GAS_URL}?action=getRampList&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _rampList = r.ramps||[]; }
+      if(!_rampList){ const r = await (window.ssbFetch || fetch)(`${GAS_URL}?action=getRampList&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _rampList = r.ramps||[]; }
     }
   }catch(e){ list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`; return; }
   _renderAddJobList();
