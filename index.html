@@ -31,6 +31,8 @@
 </script>
 <title>ติดตามสถานะออเดอร์ — SSB</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<!-- ssbFetch: อ่านจาก Supabase Edge ก่อน พลาด → GAS (ไฟล์อยู่ repo SSB-SMART-SUPPLY-DASHBOARD) · โหลดไม่ได้ก็ใช้ fetch เดิม -->
+<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261007f"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -1081,7 +1083,8 @@ async function loadOrders(isRefresh, uid) {
   }
 
   try {
-    const res = await fetch(`${GAS_URL}?action=getOrderTracker&userId=${uid}`);
+    // ⚡ ssbFetch = Supabase Edge "order-tracker" ก่อน (~1 วิ · ผลตรง GAS ทุกฟิลด์) พลาด/เกิน 10 วิ → GAS เดิม
+    const res = await (window.ssbFetch || fetch)(`${GAS_URL}?action=getOrderTracker&userId=${uid}`);
     const data = await res.json();
 
     if (!data.success) {
