@@ -60,9 +60,10 @@
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw2DXaTVoX5cgUZjQrGlpx7tQ1-gwcYYB85eY8MElo2oaqBIxCsjVfL7yMiM8uuUw9YxA/exec';
 // 🧪 ปุ่มเขียน (แก้/ยกเลิก/ยกเลิกแวะลาน/เปลี่ยนคนขับ) → Supabase Edge "order-actions" — เปิดเฉพาะเครื่องที่ทดสอบ (?edgew=1 เปิด · ?edgew=0 ปิด)
-//    ค่าเริ่ม = GAS เดิม · ไม่ถอยไป GAS อัตโนมัติ (ปุ่มเขียน ยิงซ้ำ = แจ้ง LINE ซ้ำ) · อนุมัติลาน/เพิ่มงาน ยังเป็น GAS เสมอ
+//    ค่าเริ่ม = GAS เดิม · ไม่ถอยไป GAS อัตโนมัติ (ปุ่มเขียน ยิงซ้ำ = แจ้ง LINE ซ้ำ) · เพิ่มงานเข้าทริป ยังเป็น GAS เสมอ
+//    ตอบแทนลานเท (adminApproveRamp) ย้ายแล้ว 2026-10-08 — สถานะรอใช้ตาราง order_pending ร่วมกับ GAS
 const EDGE_WRITE_URL = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/order-actions';
-const EDGE_WRITE_ACTIONS = { editOrder: 1, cancelOrderOwner: 1, cancelRampStop: 1, reassignDriver: 1 };
+const EDGE_WRITE_ACTIONS = { editOrder: 1, cancelOrderOwner: 1, cancelRampStop: 1, reassignDriver: 1, adminApproveRamp: 1 };
 (function(){ try{ const q = new URLSearchParams(location.search).get('edgew'); if(q==='1') localStorage.setItem('ssb_edge_writes','1'); if(q==='0') localStorage.removeItem('ssb_edge_writes'); }catch(e){} })();
 function useEdgeWrites(){ try{ return localStorage.getItem('ssb_edge_writes')==='1'; }catch(e){ return false; } }
 function postAction(payload){
@@ -1127,15 +1128,11 @@ async function approveRamp(orderId, answer, btn) {
   btn.innerHTML = 'กำลังบันทึก...';
 
   try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // กัน CORS preflight ของ GAS
-      body: JSON.stringify({
-        action: 'adminApproveRamp',
-        orderId: orderId,
-        answer:  answer,
-        userId:  window._userId
-      })
+    const res = await postAction({   // GAS หรือ Edge (เครื่องที่เปิด ?edgew=1)
+      action: 'adminApproveRamp',
+      orderId: orderId,
+      answer:  answer,
+      userId:  window._userId
     });
     const data = await res.json();
     if (data && data.success) {
