@@ -59,6 +59,16 @@
 
 <script>
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw2DXaTVoX5cgUZjQrGlpx7tQ1-gwcYYB85eY8MElo2oaqBIxCsjVfL7yMiM8uuUw9YxA/exec';
+// 🧪 ปุ่มเขียน (แก้/ยกเลิก/ยกเลิกแวะลาน/เปลี่ยนคนขับ) → Supabase Edge "order-actions" — เปิดเฉพาะเครื่องที่ทดสอบ (?edgew=1 เปิด · ?edgew=0 ปิด)
+//    ค่าเริ่ม = GAS เดิม · ไม่ถอยไป GAS อัตโนมัติ (ปุ่มเขียน ยิงซ้ำ = แจ้ง LINE ซ้ำ) · อนุมัติลาน/เพิ่มงาน ยังเป็น GAS เสมอ
+const EDGE_WRITE_URL = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/order-actions';
+const EDGE_WRITE_ACTIONS = { editOrder: 1, cancelOrderOwner: 1, cancelRampStop: 1, reassignDriver: 1 };
+(function(){ try{ const q = new URLSearchParams(location.search).get('edgew'); if(q==='1') localStorage.setItem('ssb_edge_writes','1'); if(q==='0') localStorage.removeItem('ssb_edge_writes'); }catch(e){} })();
+function useEdgeWrites(){ try{ return localStorage.getItem('ssb_edge_writes')==='1'; }catch(e){ return false; } }
+function postAction(payload){
+  const url = (useEdgeWrites() && EDGE_WRITE_ACTIONS[payload.action]) ? EDGE_WRITE_URL : GAS_URL;
+  return fetch(url, { method:'POST', redirect:'follow', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+}
 const PACKING_URL = 'https://sadayu07ktc-droid.github.io/SSB-App/packing/';   // แดชบอร์ด Packing (SSB-App)
 let PK_PENDING = null;    // จำนวนคำขอ Packing ค้างจัดรถ (จาก getPkSummary)
 const LIFF_ID = '2010274217-KGSFWvpp';
@@ -506,11 +516,7 @@ async function submitEdit(orderId, btn) {
   };
   btn.disabled = true; btn.innerHTML = 'กำลังบันทึก...';
   try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // กัน CORS preflight ของ GAS
-      body: JSON.stringify(payload)
-    });
+    const res = await postAction(payload);
     const data = await res.json();
     if (data && data.success) {
       EDITING_IDS.delete(orderId);
@@ -536,11 +542,7 @@ async function cancelOrderGuarded(orderId) {
   });
   if (!ok) return;
   try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'cancelOrderOwner', userId: window._userId, orderId: orderId })
-    });
+    const res = await postAction({ action: 'cancelOrderOwner', userId: window._userId, orderId: orderId });
     const data = await res.json();
     if (data && data.success) {
       toast('🚫 ยกเลิกออเดอร์แล้ว');
@@ -1162,9 +1164,7 @@ async function cancelRampStop(orderId){
   if(!ok) return;
   try{
     toast('กำลังยกเลิกแวะลาน…');
-    const res = await fetch(GAS_URL, {method:'POST', redirect:'follow', body: JSON.stringify({
-      action:'cancelRampStop', userId: window._userId, orderId: orderId
-    })});
+    const res = await postAction({ action:'cancelRampStop', userId: window._userId, orderId: orderId });
     const d = await res.json();
     if(d && d.success){ toast('✅ ยกเลิกแวะลานแล้ว — แจ้งคนขับแล้ว'); loadOrders(true); }
     else toast('❌ '+((d&&d.error)||'ไม่สำเร็จ'));
@@ -1245,10 +1245,10 @@ async function doReassign(idx){
   const list = document.getElementById('reassign-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเปลี่ยนคนขับ...</p>';
   try{
-    const res = await fetch(GAS_URL, {method:'POST', redirect:'follow', body: JSON.stringify({
+    const res = await postAction({
       action:'reassignDriver', userId: window._userId,
       orderId: _reassignCtx.orderId, driverUid: d.uid, driverName: d.name, plate: d.plate
-    })});
+    });
     const r = await res.json();
     if(!r || !r.success){ toast('ไม่สำเร็จ: '+((r&&r.error)||'unknown')); _renderReassignList(''); return; }
     closeReassign();
