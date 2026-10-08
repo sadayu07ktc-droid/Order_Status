@@ -635,7 +635,10 @@ function orderCardHtml(order, idx, isAdmin) {
     let rampHtml = '';
     if (isAdmin && order.rampInfo) {
       // ปุ่มเบรคแวะลาน: โชว์เมื่อ ยังแวะลานอยู่ (hasRamp) + งานยังไม่จบ/ยกเลิก
-      const canBrakeRamp = order.hasRamp && !["เสร็จงาน", "ยกเลิก"].includes(order.status);
+      //   + ต้องมีคนขับแล้ว และลานตอบแล้ว (2026-10-08) — เดิมโชว์ตั้งแต่ยังรอลานตอบ กดแล้วออเดอร์ค้าง
+      //     (ตั้งผลลาน "ยกเลิกแวะ" แต่ไม่มอบงาน/ไม่กระจาย + ตัวเช็คลานไม่ตอบข้ามไป) — ช่วงรอลานใช้ปุ่มตอบแทนลานเทแทน
+      const canBrakeRamp = order.hasRamp && !["เสร็จงาน", "ยกเลิก"].includes(order.status)
+        && !!order.driverName && order.rampInfo !== "ยังไม่ตอบ";
       const brakeBtn = canBrakeRamp ? `
         <button onclick="event.stopPropagation(); cancelRampStop('${escapeHtml(order.orderId)}')"
           class="mt-2 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700 transition-colors">
