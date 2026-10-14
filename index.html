@@ -32,7 +32,9 @@
 <title>ติดตามสถานะออเดอร์ — SSB</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <!-- ssbFetch: อ่านจาก Supabase Edge ก่อน พลาด → GAS (ไฟล์อยู่ repo SSB-SMART-SUPPLY-DASHBOARD) · โหลดไม่ได้ก็ใช้ fetch เดิม -->
-<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261007l"></script>
+<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261014b"></script>
+<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-pin-gate.js?v=20261014b"></script>
+<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-group-gate.js?v=20261014a"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -215,6 +217,23 @@ const FILTER_CHIPS = [
 const OWNER_TYPE_ORDER = ["Owner", "Team", "Ramp", "Admin"];
 
 let ALL_ORDERS = [];
+/* 🧭 แอดมิน: เลือกกลุ่ม (ไร่/Bulk/Packing) + PIN ส่วนตัวก่อนดู · ssb-group-gate.js (2026-10-14)
+ *   เจ้าของสวน/ทีมตัด/ลาน/คนขับ ไม่ผ่านหน้านี้ (เห็นเฉพาะของตัวเองเหมือนเดิม) */
+let ADMIN_GROUP = '', GROUP_GATE_OPEN = false;
+async function ensureAdminGroup() {
+  if (GROUP_GATE_OPEN || typeof ssbGroupGate !== 'function') return;
+  GROUP_GATE_OPEN = true;
+  document.getElementById('app').style.visibility = 'hidden';
+  document.getElementById('loading').style.display = 'none';
+  const p = window._profile || {};
+  const g = await ssbGroupGate(window._userId, { title: 'ติดตามสถานะ', key: 'tracker', name: p.displayName, picture: p.pictureUrl });
+  GROUP_GATE_OPEN = false;
+  if (!g) return;
+  ADMIN_GROUP = g;
+  document.getElementById('app').style.visibility = '';
+  render();
+}
+function changeAdminGroup() { ADMIN_GROUP = ''; ensureAdminGroup(); }
 let CURRENT_ROLE = '';
 let FLEET = {};   // ตำแหน่งรถสด (getFleetPositions) — key = ทะเบียนหัว
 let FILTER_STATUS = "ทั้งหมด";
@@ -771,7 +790,7 @@ function ownerTypeDashboardHtml(orders) {
 
 function filterChipsHtml(chips) {
   // 🆕 ชิปเลือกคนขับ (dropdown) — รายชื่อจากออเดอร์ที่มีในช่วงวันที่ที่เลือก
-  const drivers = [...new Set(ALL_ORDERS.filter(o => matchesDateFilter(o.date)).map(o => o.driverName).filter(Boolean))]
+  const drivers = [...new Set(ALL_ORDERS.filter(o => matchesDateFilter(o.date) && (!ADMIN_GROUP || ssbOrderGroup(o.jobType) === ADMIN_GROUP)).map(o => o.driverName).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'th'));
   const drvActive = !!FILTER_DRIVER;
   const drvCls = drvActive ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-emerald-800 hover:bg-amber-50";
@@ -923,8 +942,10 @@ function fleetLineHtml(order) {
 
 function render() {
   const isAdmin = CURRENT_ROLE === 'Admin';
+  if (isAdmin && !ADMIN_GROUP) { ensureAdminGroup(); return; }   // 🧭 แอดมินต้องเลือกกลุ่ม + PIN ก่อน
+  const baseOrders = isAdmin ? ALL_ORDERS.filter(o => ssbOrderGroup(o.jobType) === ADMIN_GROUP) : ALL_ORDERS;
 
-  let orders = ALL_ORDERS.filter(o => matchesDateFilter(o.date));
+  let orders = baseOrders.filter(o => matchesDateFilter(o.date));
   if (isAdmin && FILTER_STATUS !== "ทั้งหมด") {
     orders = orders.filter(o => o.status === FILTER_STATUS);
   }
@@ -952,6 +973,7 @@ function render() {
         <div>
           <h1 class="text-xl sm:text-2xl font-bold flex items-center gap-2">${icon("truck", 24)}ติดตามสถานะออเดอร์</h1>
           <p class="text-emerald-100 text-sm mt-1">SSB Smart Supply · ${escapeHtml(roleLabel)}</p>
+          ${isAdmin ? '<span id="grpChipT" class="inline-block mt-2"></span>' : ''}
         </div>
         <button onclick="loadOrders(true)" id="refresh-btn" class="flex items-center gap-2 bg-white/15 hover:bg-white/25 transition-colors rounded-xl px-3 py-2 text-sm font-medium">
           ${icon("refresh", 16, "refresh-icon" + (LOADING ? " spin" : ""))}${LOADING ? 'กำลังโหลด…' : 'อัปเดตข้อมูล'}
@@ -985,7 +1007,7 @@ function render() {
     </div>`;
 
   // ออเดอร์ตามวันที่เลือก (ก่อน filter สถานะ/ผู้สั่ง) — ใช้สำหรับนับในแดชบอร์ด
-  const dateFilteredOrders = ALL_ORDERS.filter(o => matchesDateFilter(o.date));
+  const dateFilteredOrders = baseOrders.filter(o => matchesDateFilter(o.date));
 
   if (isAdmin) {
     html += `
@@ -1039,6 +1061,7 @@ function render() {
     </div>`;
 
   document.getElementById('app').innerHTML = html;
+  if (isAdmin && typeof ssbGroupChip === 'function') ssbGroupChip(document.getElementById('grpChipT'), ADMIN_GROUP, changeAdminGroup);
 }
 
 function _lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -1063,6 +1086,7 @@ async function init() {
     if (!liff.isLoggedIn()) { liff.login(); return; }
     const profile = await liff.getProfile();
     window._userId = profile.userId;
+    window._profile = profile;   // ชื่อ/รูป ใช้บนหน้าเลือกกลุ่ม (แอดมิน)
     _lsSet('ssb_uid', profile.userId);
     if (pre && cachedUid === profile.userId) { await pre; }   // uid ตรง → ใช้ผลที่โหลดขนานไปแล้ว
     else { await loadOrders(false, profile.userId); }          // uid เปลี่ยน/ไม่มี cache → โหลดด้วย uid จริง
