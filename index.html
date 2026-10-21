@@ -304,6 +304,14 @@ function checkinLabel(source) {
   return 'ถึงลูกค้า';   // ไม่ทราบที่มา → ไม่เคลม GPS
 }
 
+// cancel_reason = "ยกเลิกโดย<ใคร> — <เหตุผล>" (order-actions) → แยกแสดง โดย / เหตุผล
+function cancelReasonHtml(cr) {
+  cr = String(cr || '').trim(); if (!cr) return '';
+  const m = cr.match(/^ยกเลิกโดย(.*?)(?:\s+—\s+(.+))?$/);
+  const line = (k, v) => `<span class="block font-normal mt-0.5 opacity-90">${k}: ${escapeHtml(v)}</span>`;
+  if (!m) return line('เหตุผล', cr);
+  return line('โดย', m[1] || '—') + (m[2] ? line('เหตุผล', m[2]) : '');
+}
 function timelineHtml(status, timestamps, steps, cancelReason, checkinSource) {
   timestamps = timestamps || {};
   const isCancelled = status === "ยกเลิก";
@@ -335,7 +343,7 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource) {
     footerHtml = `
       <div class="flex items-start gap-2 text-xs font-medium px-3 py-2 rounded-xl border ${toneClasses("danger")}">
         ${icon("x", 14, "mt-0.5 shrink-0")}
-        <span>ออเดอร์นี้ถูกยกเลิกแล้ว${cancelReason ? `<span class="block font-normal mt-0.5 opacity-90">เหตุผล: ${escapeHtml(cancelReason)}</span>` : ''}</span>
+        <span>ออเดอร์นี้ถูกยกเลิกแล้ว${cancelReasonHtml(cancelReason)}</span>
       </div>`;
   } else if (exception) {
     const msg = exception.label === "ถึงลานเท" ? "คนขับแวะลานเทก่อนไปจุดต่อไป" : "งานนี้ต้องการความช่วยเหลือจาก Admin";
@@ -394,6 +402,59 @@ function confirmModal(opt) {
     document.addEventListener('keydown', onkey);
     document.body.appendChild(ov);
     ov.querySelector('[data-ok]').focus();
+  });
+}
+
+// 🚫 เลือกเหตุผลยกเลิก (2026-10-21) → string | null · บังคับมีเหตุผล · "อื่นๆ" ต้องพิมพ์เอง
+const CANCEL_REASONS = ['ปาล์มยังไม่พร้อม / ตัดไม่ทัน', 'เปลี่ยนวัน-เวลา (จะสั่งใหม่)', 'สั่งซ้ำ / สั่งผิด', 'ฝนตก / รถเข้าสวนไม่ได้', 'ไม่มีคนขับรับงาน', 'หารถเองได้แล้ว'];
+const CANCEL_REASONS_ADMIN = ['ไม่มีรถว่าง', 'สวน/ทีมตัดแจ้งยกเลิก'];
+function cancelReasonModal(opt) {
+  opt = opt || {};
+  const list = (CURRENT_ROLE === 'Admin' ? CANCEL_REASONS_ADMIN : []).concat(CANCEL_REASONS, ['อื่นๆ (ระบุเอง)']);
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'fixed inset-0 z-[121] flex items-center justify-center bg-black/40 p-4';
+    ov.innerHTML =
+      '<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="cr-t">' +
+        '<div class="flex items-start gap-3"><div class="text-2xl leading-none">🚫</div><div class="flex-1 min-w-0">' +
+          '<p id="cr-t" class="font-bold text-emerald-900">ยกเลิกออเดอร์นี้?</p>' +
+          (opt.msg ? '<p class="text-sm text-emerald-800/80 mt-1 whitespace-pre-line">' + escapeHtml(opt.msg) + '</p>' : '') + '</div></div>' +
+        '<p class="text-sm font-semibold text-emerald-900">เหตุผล <span class="text-rose-600 text-xs font-medium">* จำเป็น</span></p>' +
+        '<div class="flex flex-wrap gap-2" role="radiogroup" aria-label="เหตุผลที่ยกเลิก">' +
+          list.map((r, i) => '<button type="button" role="radio" aria-checked="false" data-r="' + i + '" class="cr-chip px-3 py-1.5 rounded-full text-[13px] border border-amber-200 bg-amber-50 text-emerald-900 hover:bg-amber-100">' + escapeHtml(r) + '</button>').join('') +
+        '</div>' +
+        '<textarea id="cr-note" rows="2" maxlength="150" class="w-full border border-emerald-200 rounded-xl px-3 py-2 text-sm placeholder:text-emerald-800/35" placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ) เช่น เลื่อนไปวันศุกร์"></textarea>' +
+        '<p id="cr-err" class="text-xs text-rose-600 hidden"></p>' +
+        '<div class="flex gap-2 justify-end pt-1">' +
+          '<button data-x class="px-4 py-2 rounded-xl text-sm font-medium text-emerald-800 bg-amber-50 hover:bg-amber-100 border border-amber-200">ไม่ยกเลิก</button>' +
+          '<button data-ok class="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700">🚫 ยกเลิกออเดอร์</button>' +
+        '</div></div>';
+    let pick = -1;
+    const note = ov.querySelector('#cr-note'), err = ov.querySelector('#cr-err');
+    const isOther = () => pick === list.length - 1;
+    ov.querySelectorAll('.cr-chip').forEach(b => b.onclick = () => {
+      pick = +b.dataset.r;
+      ov.querySelectorAll('.cr-chip').forEach(x => {
+        const on = x === b; x.setAttribute('aria-checked', String(on));
+        x.className = 'cr-chip px-3 py-1.5 rounded-full text-[13px] border ' + (on ? 'border-rose-500 bg-rose-600 text-white font-semibold' : 'border-amber-200 bg-amber-50 text-emerald-900 hover:bg-amber-100');
+      });
+      note.placeholder = isOther() ? 'พิมพ์เหตุผลที่ยกเลิก' : 'รายละเอียดเพิ่มเติม (ไม่บังคับ) เช่น เลื่อนไปวันศุกร์';
+      err.classList.add('hidden');
+      if (isOther()) note.focus();
+    });
+    const done = v => { ov.remove(); document.removeEventListener('keydown', onkey); resolve(v); };
+    const onkey = e => { if (e.key === 'Escape') done(null); };
+    ov.querySelector('[data-ok]').onclick = () => {
+      const extra = note.value.trim();
+      if (pick < 0) { err.textContent = 'กรุณาเลือกเหตุผลที่ยกเลิก'; err.classList.remove('hidden'); return; }
+      if (isOther() && !extra) { err.textContent = 'กรุณาพิมพ์เหตุผลที่ยกเลิก'; err.classList.remove('hidden'); note.focus(); return; }
+      done(isOther() ? extra : list[pick] + (extra ? ' · ' + extra : ''));
+    };
+    ov.querySelector('[data-x]').onclick = () => done(null);
+    ov.onclick = e => { if (e.target === ov) done(null); };
+    document.addEventListener('keydown', onkey);
+    document.body.appendChild(ov);
+    const first = ov.querySelector('.cr-chip'); if (first) first.focus();
   });
 }
 
@@ -560,15 +621,12 @@ async function submitEdit(orderId, btn) {
 // 🆕 ยกเลิกออเดอร์ (เจ้าของ/ทีม/ลาน/แอดมิน) — เฉพาะยังไม่เริ่มงาน + ก่อนนัด 2 ชม. → แจ้งแอดมิน
 async function cancelOrderGuarded(orderId) {
   const o = (ALL_ORDERS || []).find(x => x.orderId === orderId) || {};
-  const ok = await confirmModal({
-    icon: '🚫',
-    title: 'ยืนยันยกเลิกออเดอร์นี้?',
-    msg: `${orderId}${o.gardenName ? ' · ' + o.gardenName : ''} — ${o.driverName ? 'ระบบจะแจ้งคนขับ (' + o.driverName + ') และแอดมิน' : 'ระบบจะแจ้งแอดมิน'}`,
-    okText: '🚫 ยกเลิกออเดอร์', cancelText: 'ไม่ยกเลิก'
+  const reason = await cancelReasonModal({
+    msg: `${orderId}${o.gardenName ? ' · ' + o.gardenName : ''}\nระบบจะแจ้ง${o.driverName ? 'คนขับ (' + o.driverName + ') ' : ''}แอดมิน และคนสั่งงาน/สวน พร้อมเหตุผล`
   });
-  if (!ok) return;
+  if (!reason) return;
   try {
-    const res = await postAction({ action: 'cancelOrderOwner', userId: window._userId, orderId: orderId });
+    const res = await postAction({ action: 'cancelOrderOwner', userId: window._userId, orderId: orderId, reason: reason });
     const data = await res.json();
     if (data && data.success) {
       toast('🚫 ยกเลิกออเดอร์แล้ว');
