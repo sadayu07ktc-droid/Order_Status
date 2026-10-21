@@ -483,19 +483,24 @@ function fmtDMY(d) {
 }
 
 // ── ส่วนแก้ไขออเดอร์ (เจ้าของ/แอดมิน + งานยังไม่เริ่ม + ก่อนนัด 2 ชม.) ──
+// ยกเลิก (2026-10-21) แยกจากแก้ไข: order.cancelable มาจาก Edge order-tracker · GAS เดิมไม่มีฟิลด์นี้ → ใช้ตาม editable
+function canCancel(order) { return order.cancelable === undefined ? !!order.editable : !!order.cancelable; }
+function cancelBtnHtml(oid) {
+  return `<button onclick="event.stopPropagation(); cancelOrderGuarded('${oid}')"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 transition-colors w-max">🚫 ยกเลิกออเดอร์</button>`;
+}
 function editSectionHtml(order) {
-  if (!order.editable) {
-    return order.editReason
-      ? `<p class="text-xs text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5">🔒 ${escapeHtml(order.editReason)}</p>`
-      : '';
-  }
   const oid = escapeHtml(order.orderId);
+  const lockNote = (t) => t ? `<p class="text-xs text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5">🔒 ${escapeHtml(t)}</p>` : '';
+  if (!order.editable) {
+    if (canCancel(order)) return `<div class="flex gap-2 flex-wrap items-center">${cancelBtnHtml(oid)}<span class="text-[11px] text-emerald-800/60">${order.status === 'ไม่มีคนขับรับงาน' ? 'ยังไม่มีคนขับรับงาน · ยกเลิกได้' : 'แก้ไขไม่ได้แล้ว แต่ยังยกเลิกได้'}</span></div>`;
+    return lockNote(order.cancelBlock || order.editReason);
+  }
   if (!EDITING_IDS.has(order.orderId)) {
     return `<div class="flex gap-2 flex-wrap">
       <button onclick="event.stopPropagation(); toggleEdit('${oid}')"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors w-max">✏️ แก้ไขออเดอร์</button>
-      <button onclick="event.stopPropagation(); cancelOrderGuarded('${oid}')"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 transition-colors w-max">🚫 ยกเลิกออเดอร์</button>
+      ${canCancel(order) ? cancelBtnHtml(oid) : ''}
     </div>`;
   }
   const inp = 'mt-1 w-full border border-emerald-200 rounded-lg px-2.5 py-1.5 text-sm bg-white';
@@ -558,7 +563,7 @@ async function cancelOrderGuarded(orderId) {
   const ok = await confirmModal({
     icon: '🚫',
     title: 'ยืนยันยกเลิกออเดอร์นี้?',
-    msg: `${orderId}${o.gardenName ? ' · ' + o.gardenName : ''} — ยกเลิกได้เฉพาะงานที่ยังไม่เริ่ม + ก่อนเวลานัด 2 ชม. · ระบบจะแจ้งแอดมิน`,
+    msg: `${orderId}${o.gardenName ? ' · ' + o.gardenName : ''} — ${o.driverName ? 'ระบบจะแจ้งคนขับ (' + o.driverName + ') และแอดมิน' : 'ระบบจะแจ้งแอดมิน'}`,
     okText: '🚫 ยกเลิกออเดอร์', cancelText: 'ไม่ยกเลิก'
   });
   if (!ok) return;
