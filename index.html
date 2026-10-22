@@ -32,9 +32,9 @@
 <title>ติดตามสถานะออเดอร์ — SSB</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <!-- ssbFetch: อ่านจาก Supabase Edge ก่อน พลาด → GAS (ไฟล์อยู่ repo SSB-SMART-SUPPLY-DASHBOARD) · โหลดไม่ได้ก็ใช้ fetch เดิม -->
-<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261014b"></script>
-<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-pin-gate.js?v=20261014b"></script>
-<script src="https://sadayu07ktc-droid.github.io/SSB-SMART-SUPPLY-DASHBOARD/ssb-group-gate.js?v=20261014a"></script>
+<script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261014b"></script>
+<script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-pin-gate.js?v=20261014b"></script>
+<script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-group-gate.js?v=20261014a"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -73,7 +73,7 @@ function postAction(payload){
   const url = (useEdgeWrites() && EDGE_WRITE_ACTIONS[payload.action]) ? EDGE_WRITE_URL : GAS_URL;
   return fetch(url, { method:'POST', redirect:'follow', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
 }
-const PACKING_URL = 'https://sadayu07ktc-droid.github.io/SSB-App/packing/';   // แดชบอร์ด Packing (SSB-App)
+const PACKING_URL = '/SSB-App/packing/';   // แดชบอร์ด Packing (SSB-App)
 let PK_PENDING = null;    // จำนวนคำขอ Packing ค้างจัดรถ (จาก getPkSummary)
 const LIFF_ID = '2010274217-KGSFWvpp';
 const ASSIGN_DRIVER_URL = 'https://liff.line.me/2010274217-BF41B8c2';
