@@ -695,6 +695,10 @@ function orderCardHtml(order, idx, isAdmin) {
         <button onclick="event.stopPropagation(); reassignGuarded('${escapeHtml(order.orderId)}', ${runningStarted})"
           class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg ${reBtnCls} text-xs font-semibold transition-colors"${runningStarted ? ' title="งานวิ่งแล้ว — เปลี่ยนเฉพาะกรณีจำเป็น"' : ''}>
           ${icon("refresh", 12)}เปลี่ยนคนขับ</button>` : '';
+      const plateBtn = canReassign ? `
+        <button onclick="event.stopPropagation(); openPlateEdit('${escapeHtml(order.orderId)}')"
+          class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-white border border-blue-300 text-blue-700 text-xs font-semibold hover:bg-blue-50 transition-colors">
+          ${icon("truck", 12)}เปลี่ยนทะเบียน</button>` : '';
       const addJobBtn = canReassign ? `
         <button onclick="event.stopPropagation(); openAddJob('${escapeHtml(order.orderId)}')"
           class="flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-lg bg-fuchsia-600 text-white text-xs font-semibold hover:bg-fuchsia-700 transition-colors">
@@ -711,6 +715,7 @@ function orderCardHtml(order, idx, isAdmin) {
             ${order.driverPhone ? `<a href="tel:${escapeHtml(order.driverPhone)}" onclick="event.stopPropagation()" class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">${icon("phone", 12)}${escapeHtml(order.driverPhone)}</a>` : ''}
             ${addJobBtn}
             ${reassignBtn}
+            ${plateBtn}
           </span>
         </div>`;
     }
@@ -1347,6 +1352,64 @@ async function doReassign(idx){
   }
 }
 
+// ── 🚗 เปลี่ยนทะเบียน (แอดมินเท่านั้น · คุณน้อง 2026-11-04: ฟอร์มคนขับเปลี่ยนไม่ได้แล้ว) → Edge order-plate ──
+const PLATE_EDGE_URL = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/order-plate';
+let _plateCtx = null, _plateOpts = null, _plateRows = [];
+async function openPlateEdit(orderId){
+  const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
+  if(!o){ toast('ไม่พบออเดอร์ ' + orderId); return; }
+  _plateCtx = { orderId: o.orderId, plate: String(o.plate||'').trim(), group: ssbOrderGroup(o.jobType), driver: o.driverName||'' };
+  document.getElementById('plate-sub').textContent = `${o.orderId} · ${_plateCtx.driver||'—'} · ทะเบียนตอนนี้ ${_plateCtx.plate||'—'}`;
+  document.getElementById('plate-search').value = '';
+  document.getElementById('plate-modal').classList.remove('hidden');
+  const list = document.getElementById('plate-list');
+  if(!_plateOpts){
+    list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลดรายการรถ...</p>';
+    try{
+      const r = await fetch(PLATE_EDGE_URL+'?action=options&userId='+encodeURIComponent(window._userId)).then(x=>x.json());
+      if(!r || !r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ');
+      _plateOpts = r;
+    }catch(e){ list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดรายการรถไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`; return; }
+  }
+  if(_plateCtx) _renderPlateList('');
+}
+function _plateChoices(){
+  const c = _plateCtx, P = c.plate.split(',').map(x=>x.trim()).filter(Boolean), out = [];
+  if(P.length>=2) out.push({ plate:P[0], title:P[0], sub:'เฉพาะหัว — ใบงานนี้ไม่มีหาง', headOnly:true });
+  const same = _plateOpts.items.filter(v=>v.group===c.group), other = _plateOpts.items.filter(v=>v.group!==c.group);
+  same.concat(other).forEach(v=>{ if(v.plate!==c.plate) out.push({ plate:v.plate, title:v.plate, sub:[v.name,v.type,v.group!==c.group?'กลุ่ม'+v.group:''].filter(Boolean).join(' · ') }); });
+  if(P.length>=2) _plateOpts.tails.filter(t=>t.plate!==P[1]&&t.group===c.group).forEach(t=>out.push({ plate:P[0]+','+t.plate, title:P[0]+','+t.plate, sub:'หัวเดิม + หาง '+t.plate+' ('+(t.name||'—')+')' }));
+  return out;
+}
+function _renderPlateList(q){
+  if(!_plateCtx||!_plateOpts) return;
+  const kw = (q||'').trim().toLowerCase();
+  _plateRows = _plateChoices().filter(x=>!kw||(x.title+' '+x.sub).toLowerCase().includes(kw));
+  document.getElementById('plate-list').innerHTML = _plateRows.map((x,i)=>`<button onclick="pickPlate(${i})"
+      class="w-full px-3 py-2.5 rounded-xl border ${x.headOnly?'border-amber-400 bg-amber-50':'border-amber-200 bg-white'} hover:bg-amber-50 text-left transition-colors">
+      <span class="block text-sm font-semibold text-emerald-900">${escapeHtml(x.title)}</span>
+      <span class="block text-xs ${x.headOnly?'text-amber-800':'text-emerald-700/70'}">${escapeHtml(x.sub)}</span>
+    </button>`).join('') || '<p class="text-sm text-emerald-700 py-6 text-center">ไม่พบทะเบียน</p>';
+}
+function closePlateEdit(){ document.getElementById('plate-modal').classList.add('hidden'); _plateCtx = null; }
+async function pickPlate(i){
+  const x = _plateRows[i], c = _plateCtx;
+  if(!x||!c) return;
+  const ok = await confirmModal(x.headOnly
+    ? { icon:'⚠️', title:'ระบุแค่ทะเบียนหัว '+x.plate+'?', msg:'ใบงานนี้จะไม่มีหาง มีผลกับค่าแรง เลือกเฉพาะเมื่อวิ่งไม่มีหางจริง · ระบบจะแจ้งคนขับ', okText:'ใช้แค่หัว', cancelText:'ยกเลิก' }
+    : { icon:'🚗', title:'เปลี่ยนทะเบียนเป็น '+x.plate+'?', msg:'จาก '+(c.plate||'—')+' · ต้นทุน GPS และค่าแรงเที่ยวนี้จะอ้างคันใหม่ · ระบบจะแจ้งคนขับ', okText:'เปลี่ยนทะเบียน', cancelText:'ยกเลิก' });
+  if(!ok||_plateCtx!==c) return;
+  const list = document.getElementById('plate-list');
+  list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเปลี่ยนทะเบียน...</p>';
+  try{
+    const r = await fetch(PLATE_EDGE_URL,{ method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body:JSON.stringify({ action:'setPlate', userId:window._userId, orderId:c.orderId, plate:x.plate }) }).then(res=>res.json());
+    if(!r||!r.success){ toast('❌ '+((r&&r.error)||'เปลี่ยนทะเบียนไม่สำเร็จ')); _renderPlateList(''); return; }
+    closePlateEdit();
+    toast('✅ เปลี่ยนเป็น '+r.plate+' แล้ว · แจ้งคนขับแล้ว');
+    loadOrders(true);
+  }catch(e){ toast('❌ '+(e.message||e)); _renderPlateList(''); }
+}
+
 // ── ➕ เพิ่มงานเข้าทริป (2 โหมด: 📦 Packing ค้าง / 🌴 แวะลาน รับปาล์ม) ──
 let _addJobCtx = null, _pkWaiting = null, _rampList = null, _addJobMode = 'packing';
 async function openAddJob(orderId){
@@ -1429,6 +1492,21 @@ init();
         class="mt-3 w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
     </div>
     <div id="reassign-list" class="p-3 space-y-2 overflow-y-auto"></div>
+  </div>
+</div>
+
+<div id="plate-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if(event.target===this)closePlateEdit()">
+  <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] flex flex-col shadow-xl">
+    <div class="px-4 pt-4 pb-3 border-b border-amber-100">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-base font-bold text-emerald-900">เปลี่ยนทะเบียน</h3>
+        <button onclick="closePlateEdit()" class="text-emerald-700/60 hover:text-emerald-900 text-xl leading-none">&times;</button>
+      </div>
+      <p id="plate-sub" class="text-xs text-emerald-700/70 mt-1"></p>
+      <input id="plate-search" oninput="_renderPlateList(this.value)" placeholder="ค้นหาทะเบียน / ชื่อคนขับ"
+        class="mt-3 w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
+    </div>
+    <div id="plate-list" class="p-3 space-y-2 overflow-y-auto"></div>
   </div>
 </div>
 
