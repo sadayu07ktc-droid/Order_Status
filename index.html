@@ -220,6 +220,8 @@ let ALL_ORDERS = [];
 /* 🧭 แอดมิน: เลือกกลุ่ม (ไร่/Bulk/Packing) + PIN ส่วนตัวก่อนดู · ssb-group-gate.js (2026-10-14)
  *   เจ้าของสวน/ทีมตัด/ลาน/คนขับ ไม่ผ่านหน้านี้ (เห็นเฉพาะของตัวเองเหมือนเดิม) */
 let ADMIN_GROUP = '', GROUP_GATE_OPEN = false;
+// 10 พ.ย. คุณน้อง "สร้างออเดอร์แล้วไม่โผล่งานไร่": ออเดอร์ Packing ที่มาจากใบขอรถไร่ (PKR) → Edge ส่ง group='ไร่' (แอดมินไร่จัดรถ)
+const grpOf = o => (o && o.group) || ssbOrderGroup(o && o.jobType);
 async function ensureAdminGroup() {
   if (GROUP_GATE_OPEN || typeof ssbGroupGate !== 'function') return;
   GROUP_GATE_OPEN = true;
@@ -639,6 +641,13 @@ async function cancelOrderGuarded(orderId) {
   }
 }
 
+// 📦 รายละเอียดงาน Packing ที่ขอรถไร่ (order.pk จาก Edge order-tracker · ใบ PKR) แทน จุดรับ/จำนวนกระบะ ของงานปาล์ม
+function pkDetailHtml(p) {
+  const kv = (k, v) => v ? `<span><span class="font-medium text-emerald-900">${k}:</span> ${escapeHtml(v)}</span>` : "";
+  return [kv("ใบขอรถ", p.rid), kv("ปลายทาง", p.dest), kv(p.mall ? "งานห้างวันที่" : "วันส่ง", p.dlv), kv("ขึ้นสินค้า", p.loadDay),
+    kv("เข้าโหลด", p.load && p.load + " น."), kv("เวลาลงสินค้า", p.unload && p.unload + " น."), kv("จำนวน", p.qty), kv("รถ", p.veh)].join(" ");
+}
+
 function orderCardHtml(order, idx, isAdmin) {
   const expanded = EXPANDED_IDS.has(order.orderId);
   const ownerStyle = OWNER_TYPE_STYLES[order.ownerType];
@@ -743,8 +752,8 @@ function orderCardHtml(order, idx, isAdmin) {
         ${tlHtml}
         <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-emerald-800/80">
           <span><span class="font-medium text-emerald-900">วันที่:</span> ${escapeHtml(fmtDMY(order.date))} ${escapeHtml(order.time || '')}</span>
-          <span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")}</span>
-          <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>
+          ${order.pk ? pkDetailHtml(order.pk) : `<span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")}</span>
+          <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>`}
           ${order.billName ? `<span><span class="font-medium text-emerald-900">ชื่อในบิล:</span> ${escapeHtml(order.billName)}</span>` : ""}
         </div>
         ${editSectionHtml(order)}
@@ -858,7 +867,7 @@ function ownerTypeDashboardHtml(orders) {
 
 function filterChipsHtml(chips) {
   // 🆕 ชิปเลือกคนขับ (dropdown) — รายชื่อจากออเดอร์ที่มีในช่วงวันที่ที่เลือก
-  const drivers = [...new Set(ALL_ORDERS.filter(o => matchesDateFilter(o.date) && (!ADMIN_GROUP || ssbOrderGroup(o.jobType) === ADMIN_GROUP)).map(o => o.driverName).filter(Boolean))]
+  const drivers = [...new Set(ALL_ORDERS.filter(o => matchesDateFilter(o.date) && (!ADMIN_GROUP || grpOf(o) === ADMIN_GROUP)).map(o => o.driverName).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'th'));
   const drvActive = !!FILTER_DRIVER;
   const drvCls = drvActive ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-emerald-800 hover:bg-amber-50";
@@ -1011,7 +1020,7 @@ function fleetLineHtml(order) {
 function render() {
   const isAdmin = CURRENT_ROLE === 'Admin';
   if (isAdmin && !ADMIN_GROUP) { ensureAdminGroup(); return; }   // 🧭 แอดมินต้องเลือกกลุ่ม + PIN ก่อน
-  const baseOrders = isAdmin ? ALL_ORDERS.filter(o => ssbOrderGroup(o.jobType) === ADMIN_GROUP) : ALL_ORDERS;
+  const baseOrders = isAdmin ? ALL_ORDERS.filter(o => grpOf(o) === ADMIN_GROUP) : ALL_ORDERS;
 
   let orders = baseOrders.filter(o => matchesDateFilter(o.date));
   if (isAdmin && FILTER_STATUS !== "ทั้งหมด") {
@@ -1358,7 +1367,7 @@ let _plateCtx = null, _plateOpts = null, _plateRows = [];
 async function openPlateEdit(orderId){
   const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
   if(!o){ toast('ไม่พบออเดอร์ ' + orderId); return; }
-  _plateCtx = { orderId: o.orderId, plate: String(o.plate||'').trim(), group: ssbOrderGroup(o.jobType), driver: o.driverName||'' };
+  _plateCtx = { orderId: o.orderId, plate: String(o.plate||'').trim(), group: grpOf(o), driver: o.driverName||'' };
   document.getElementById('plate-sub').textContent = `${o.orderId} · ${_plateCtx.driver||'—'} · ทะเบียนตอนนี้ ${_plateCtx.plate||'—'}`;
   document.getElementById('plate-search').value = '';
   document.getElementById('plate-modal').classList.remove('hidden');
