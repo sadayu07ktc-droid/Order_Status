@@ -1487,11 +1487,17 @@ async function openAddJob(orderId){
 function _renderAddJobTabs(){
   const t = document.getElementById('addjob-tabs');
   const b = (m,l)=>`<button onclick="switchAddJobMode('${m}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${_addJobMode===m?'bg-emerald-600 border-emerald-600 text-white':'bg-white border-amber-200 text-emerald-800 hover:bg-amber-50'}">${l}</button>`;
-  t.innerHTML = b('packing','📦 งาน Packing') + b('ramp','🌴 งานขากลับ (แวะลาน)');
+  t.innerHTML = b('packing','📦 งาน Packing') + b('ramp','🌴 งานขากลับ (แวะลาน)') + b('other','🧰 งานอื่นๆ');
 }
+// 🧰 งานอื่นๆ (11 พ.ย.) = ชุดเดียวกับ Order_form OT_TYPES / pk_other_job_types / GAS OT_JOB_TYPES_ · แก้ต้องแก้ทุกที่
+const OT_TYPES = [['OT01','ส่งคน','🧑‍🤝‍🧑'],['OT02','ขนส่งเหล็ก/วัสดุ','🏗️'],['OT03','ส่ง-รับของ/อะไหล่','🔩'],['OT04','งานกิจกรรม/พิธี','🎪'],
+  ['OT05','นำรถเข้าซ่อม/ศูนย์','🔧'],['OT06','ขนย้ายเครื่องจักร','⚙️'],['OT07','งานในโรงงาน','🏭'],['OT08','ติดรถ/เรียนงาน/ทดสอบรถ','🚚'],
+  ['OT09','ช่วยเหลือฉุกเฉิน','🚨'],['OT10','อื่นๆ (รอระบุ)','📝']];
+let _otPick = '', _otKeep = {detail:'', note:''};
 function switchAddJobMode(m){ _addJobMode = m; _renderAddJobTabs(); loadAddJobList(); }
 async function loadAddJobList(){
   const list = document.getElementById('addjob-list');
+  if(_addJobMode==='other'){ _otPick=''; _otKeep={detail:'',note:''}; list.innerHTML=''; _renderAddJobList(); return; }   // ไม่ต้องโหลดอะไร
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลด...</p>';
   try{
     if(_addJobMode==='packing'){
@@ -1504,6 +1510,17 @@ async function loadAddJobList(){
 }
 function _renderAddJobList(){
   const list = document.getElementById('addjob-list');
+  if(_addJobMode==='other'){
+    const dEl = document.getElementById('ot-detail'), nEl = document.getElementById('ot-note');
+    const dv = dEl ? dEl.value : _otKeep.detail, nv = nEl ? nEl.value : _otKeep.note;   // ส่งพลาด = ค่าที่พิมพ์ไว้ไม่หาย
+    list.innerHTML = `<p class="text-xs font-semibold text-emerald-800">1 · เลือกชนิดงาน</p>
+      <div class="grid grid-cols-2 gap-2">${OT_TYPES.map(([c,n,i])=>`<button onclick="pickOtJob('${c}')" class="text-left px-3 py-2 rounded-xl border text-sm font-semibold transition-colors ${_otPick===c?'bg-emerald-600 border-emerald-600 text-white':'bg-white border-amber-200 text-emerald-900 hover:bg-amber-50'}">${i} ${escapeHtml(n)}</button>`).join('')}</div>
+      <p class="text-xs font-semibold text-emerald-800 pt-1">2 · รายละเอียด / ปลายทาง <span class="text-red-600">*</span></p>
+      <input id="ot-detail" maxlength="200" value="${escapeHtml(dv)}" placeholder="เช่น ส่งคน 5 คนไปไร่บ่อทอง · เข้าศูนย์ฮีโน่ชลบุรี" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
+      <input id="ot-note" maxlength="300" value="${escapeHtml(nv)}" placeholder="หมายเหตุถึงคนขับ (ถ้ามี)" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
+      <button onclick="doAddJob('other',0)" class="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 ${_otPick?'':'opacity-50'}">➕ เพิ่มงานอื่นๆ เข้าทริป</button>`;
+    return;
+  }
   if(_addJobMode==='packing'){
     if(!_pkWaiting || !_pkWaiting.length){ list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่มีคำขอ Packing ค้างให้เพิ่ม</p>'; return; }
     list.innerHTML = _pkWaiting.map((q,i)=>`
@@ -1520,11 +1537,18 @@ function _renderAddJobList(){
       </button>`).join('');
   }
 }
+function pickOtJob(c){ _otPick = c; _renderAddJobList(); }
 function closeAddJob(){ document.getElementById('addjob-modal').classList.add('hidden'); _addJobCtx=null; }
 async function doAddJob(mode, idx){
   if(!_addJobCtx) return;
   let payload, label;
   if(mode==='packing'){ const q=(_pkWaiting||[])[idx]; if(!q) return; payload={source:'packing',requestId:q.request_id}; label=`${q.customer_name} → ${q.destination}`; }
+  else if(mode==='other'){
+    const t=OT_TYPES.find(x=>x[0]===_otPick); if(!t){ toast('เลือกชนิดงานก่อน'); return; }
+    const detail=(document.getElementById('ot-detail').value||'').trim(), note=(document.getElementById('ot-note').value||'').trim();
+    if(!detail){ toast('ใส่รายละเอียด/ปลายทางก่อน'); document.getElementById('ot-detail').focus(); return; }
+    _otKeep={detail,note}; payload={source:'other',otCode:t[0],detail,note}; label=`${t[2]} ${t[1]} · ${detail}${note?' · 📝 '+note:''}`;
+  }
   else { const r=(_rampList||[])[idx]; if(!r) return; payload={source:'ramp',rampCode:r.code,rampName:r.name}; label=`รับปาล์มขากลับ · ${r.name||r.code}`; }
   if(!(await confirmModal({ icon:'➕', title:'เพิ่มงานเข้าทริป?', msg:`งาน: ${label}\nคนขับ: ${_addJobCtx.driver} — จะได้รับงานนี้เพิ่มทันที`, okText:'เพิ่มงาน' }))) return;
   const list = document.getElementById('addjob-list');
@@ -1580,7 +1604,7 @@ init();
         <button onclick="closeAddJob()" class="text-emerald-700/60 hover:text-emerald-900 text-xl leading-none">&times;</button>
       </div>
       <p id="addjob-sub" class="text-xs text-emerald-700/70 mt-1"></p>
-      <div id="addjob-tabs" class="flex gap-2 mt-3"></div>
+      <div id="addjob-tabs" class="flex flex-wrap gap-2 mt-3"></div>
     </div>
     <div id="addjob-list" class="p-3 space-y-2 overflow-y-auto"></div>
   </div>
