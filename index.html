@@ -203,6 +203,7 @@ const DASHBOARD_STATUSES = [
   { key: "เสร็จงาน", label: "จัดส่งสำเร็จ", tone: "done" },
   { key: "ไม่มีคนขับรับงาน", label: "ไม่มีคนขับรับงาน", tone: "warning" },
   { key: "แจ้งเตือนแอดมิน", label: "แจ้งเตือนแอดมิน", tone: "warning" },
+  { key: "__cancelwait", label: "⏳ รออนุมัติยกเลิก", tone: "warning" },   // 11 พ.ย. นับทุกวัน (ไม่ตามวันที่เลือก) · ค้างเกิน 1 ชม. = แดง
   { key: "ยกเลิก", label: "ยกเลิก", tone: "danger" },
 ];
 
@@ -211,6 +212,7 @@ const FILTER_CHIPS = [
   ...FLOW_STEPS.map(s => ({ key: s.key, label: s.label })),
   { key: "ไม่มีคนขับรับงาน", label: "ไม่มีคนขับรับงาน" },
   { key: "แจ้งเตือนแอดมิน", label: "แจ้งเตือนแอดมิน" },
+  { key: "__cancelwait", label: "⏳ รออนุมัติยกเลิก" },
   { key: "ยกเลิก", label: "ยกเลิก" },
 ];
 
@@ -380,6 +382,35 @@ function toast(msg, type) {
   requestAnimationFrame(() => { t.style.opacity = '1'; });
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 3400);
 }
+// กล่องถามพร้อมช่องพิมพ์ (เหตุผลไม่บังคับ) → string (ว่างได้) | null = กดยกเลิก · 11 พ.ย. ใช้ตอนปฏิเสธคำขอยกเลิก
+function promptModal(opt) {
+  opt = opt || {};
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'fixed inset-0 z-[121] flex items-center justify-center bg-black/40 p-4';
+    ov.innerHTML =
+      '<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-3" role="dialog" aria-modal="true">' +
+        '<div class="flex items-start gap-3">' +
+          '<div class="text-2xl leading-none">' + (opt.icon || '✍️') + '</div>' +
+          '<div class="flex-1 min-w-0"><p class="font-bold text-emerald-900">' + escapeHtml(opt.title || '') + '</p>' +
+          (opt.msg ? '<p class="text-sm text-emerald-800/80 mt-1 whitespace-pre-line">' + escapeHtml(opt.msg) + '</p>' : '') + '</div>' +
+        '</div>' +
+        '<textarea data-in rows="2" maxlength="200" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400" placeholder="' + escapeHtml(opt.placeholder || '') + '"></textarea>' +
+        '<div class="flex gap-2 justify-end pt-1">' +
+          '<button data-x class="px-4 py-2 rounded-xl text-sm font-medium text-emerald-800 bg-amber-50 hover:bg-amber-100 border border-amber-200">' + escapeHtml(opt.cancelText || 'ยกเลิก') + '</button>' +
+          '<button data-ok class="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800">' + escapeHtml(opt.okText || 'ยืนยัน') + '</button>' +
+        '</div></div>';
+    const inp = ov.querySelector('[data-in]');
+    const done = v => { ov.remove(); document.removeEventListener('keydown', onkey); resolve(v); };
+    const onkey = e => { if (e.key === 'Escape') done(null); };
+    ov.querySelector('[data-ok]').onclick = () => done(inp.value.trim());
+    ov.querySelector('[data-x]').onclick = () => done(null);
+    ov.onclick = e => { if (e.target === ov) done(null); };
+    document.addEventListener('keydown', onkey);
+    document.body.appendChild(ov);
+    inp.focus();
+  });
+}
 function confirmModal(opt) {
   opt = opt || {};
   return new Promise(resolve => {
@@ -519,9 +550,37 @@ function openWeighSlips(orderId) {
 
 // ── ปุ่มตอบแทนลานเท — เฉพาะ Admin และออเดอร์สถานะ "แจ้งเตือนแอดมิน" ──
 // 11 พ.ย. "แจ้งเตือนแอดมิน" มี 2 เหตุ: ลานเทไม่ตอบ / คนขับขอยกเลิก (cancelRequest) — งานห้าง (Packing) ไม่มีลานเท
+// ⏳ คำขอยกเลิกค้าง (11 พ.ย. คุณน้อง) = "รออนุมัติยกเลิก" หรือ "แจ้งเตือนแอดมิน" ที่มีคนขับ+คำขอ (order-timeouts เคยทับสถานะ)
+//   ตรงกับ admin-decide / orders-admin / ssb-read · ค้างเกิน CX_LATE_H ชม. = การ์ดแดง
+const CX_KEY = '__cancelwait', CX_LATE_H = 1;
+const isCxWait = o => o.status === 'รออนุมัติยกเลิก' || (o.status === 'แจ้งเตือนแอดมิน' && !!o.cancelRequest && !!o.driverName);
+const cxHours = o => { const t = Date.parse(o.cancelAt || ''); return isNaN(t) ? null : Math.max(0, (Date.now() - t) / 3600000); };
+const cxLate = o => { const h = cxHours(o); return h != null && h >= CX_LATE_H; };
+function cxAgeText(h) { if (h == null) return 'ไม่ทราบเวลาขอ'; if (h < 1) return 'ค้าง ' + Math.max(1, Math.round(h * 60)) + ' นาที';
+  return 'ค้าง ' + (h < 10 ? h.toFixed(1).replace(/\.0$/, '') : Math.round(h)) + ' ชม.'; }
+function cxAtText(s) { const t = Date.parse(s || ''); if (isNaN(t)) return '—'; const d = new Date(t);
+  return d.getDate() + '/' + (d.getMonth() + 1) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ' น.'; }
 function rampApproveHtml(order, isAdmin) {
-  if (!isAdmin || order.status !== 'แจ้งเตือนแอดมิน') return '';
+  if (!isAdmin) return '';
   const oid = escapeHtml(order.orderId);
+  if (isCxWait(order)) { const h = cxHours(order), late = cxLate(order); return `
+    <div class="cancel-decide bg-white border ${late ? 'border-red-400 ring-1 ring-red-300' : 'border-red-200'} rounded-xl px-3 py-3 space-y-2" data-order="${oid}">
+      <p class="text-sm font-semibold text-red-800 flex items-center gap-2 flex-wrap">⏳ รออนุมัติยกเลิก
+        <span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${late ? 'bg-red-600 text-white' : 'bg-amber-100 text-amber-800'}">${escapeHtml(cxAgeText(h))}</span></p>
+      <p class="text-xs text-emerald-900">👤 ผู้ขอ: <b>${escapeHtml(order.driverName || '—')}</b> · 🕘 ขอเมื่อ ${escapeHtml(cxAtText(order.cancelAt))}</p>
+      <p class="text-xs text-amber-800">📝 เหตุผล: ${escapeHtml(order.cancelRequest || '—')}</p>
+      <div class="flex gap-2">
+        <button onclick="event.stopPropagation(); decideCancelTr('${oid}','approve', this)"
+          class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+          ${icon("check", 15)}อนุมัติยกเลิก
+        </button>
+        <button onclick="event.stopPropagation(); decideCancelTr('${oid}','reject', this)"
+          class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-emerald-300 text-emerald-700 text-sm font-semibold hover:bg-emerald-50 transition-colors">
+          ${icon("x", 15)}ปฏิเสธ (ให้วิ่งต่อ)
+        </button>
+      </div>
+    </div>`; }
+  if (order.status !== 'แจ้งเตือนแอดมิน') return '';
   if (order.cancelRequest) return `
     <div class="cancel-decide bg-white border border-red-200 rounded-xl px-3 py-3 space-y-2" data-order="${oid}">
       <p class="text-sm font-semibold text-red-800">✋ คนขับ${order.driverName ? ' ' + escapeHtml(order.driverName) : ''} ขอยกเลิกงาน</p>
@@ -564,7 +623,10 @@ function fmtDMY(d) {
 
 // ── ส่วนแก้ไขออเดอร์ (เจ้าของ/แอดมิน + งานยังไม่เริ่ม + ก่อนนัด 2 ชม.) ──
 // ยกเลิก (2026-10-21) แยกจากแก้ไข: order.cancelable มาจาก Edge order-tracker · GAS เดิมไม่มีฟิลด์นี้ → ใช้ตาม editable
-function canCancel(order) { return order.cancelable === undefined ? !!order.editable : !!order.cancelable; }
+function canCancel(order) {
+  if (isCxWait(order)) return false;   // ⏳ คำขอยกเลิกค้าง → ต้องกด อนุมัติ/ปฏิเสธ เท่านั้น (11 พ.ย.)
+  return order.cancelable === undefined ? !!order.editable : !!order.cancelable;
+}
 function cancelBtnHtml(oid) {
   return `<button onclick="event.stopPropagation(); cancelOrderGuarded('${oid}')"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 transition-colors w-max">🚫 ยกเลิกออเดอร์</button>`;
@@ -573,6 +635,7 @@ function editSectionHtml(order) {
   const oid = escapeHtml(order.orderId);
   const lockNote = (t) => t ? `<p class="text-xs text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5">🔒 ${escapeHtml(t)}</p>` : '';
   if (!order.editable) {
+    if (isCxWait(order)) return lockNote('มีคำขอยกเลิกจากคนขับรอแอดมินตัดสิน — กด อนุมัติยกเลิก / ปฏิเสธ ด้านบน');
     if (canCancel(order)) return `<div class="flex gap-2 flex-wrap items-center">${cancelBtnHtml(oid)}<span class="text-[11px] text-emerald-800/60">${order.status === 'ไม่มีคนขับรับงาน' ? 'ยังไม่มีคนขับรับงาน · ยกเลิกได้' : 'แก้ไขไม่ได้แล้ว แต่ยังยกเลิกได้'}</span></div>`;
     return lockNote(order.cancelBlock || order.editReason);
   }
@@ -812,26 +875,32 @@ function toggleOrder(orderId) {
   render();
 }
 
-function dashboardHtml(orders, statuses, getKey) {
+function dashboardHtml(orders, statuses, getKey, cxList) {
   const counts = {};
   statuses.forEach(s => counts[s.key] = 0);
   orders.forEach(o => {
     const k = getKey(o);
     if (counts[k] !== undefined) counts[k]++;
   });
+  // ⏳ การ์ดรออนุมัติยกเลิก = นับจาก cxList (ทุกวันที่ของกลุ่มนี้) · มีค้างเกิน 1 ชม. = แดง
+  const cxLateN = (cxList || []).filter(cxLate).length;
+  if (counts['__cancelwait'] !== undefined) counts['__cancelwait'] = (cxList || []).length;
 
   const total = orders.length;
   return `<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 gap-3">
     ${statuses.map(s => {
       const active = FILTER_STATUS === s.key;
+      const isCx = s.key === '__cancelwait';
       const pct = total > 0 ? Math.round(counts[s.key] / total * 100) : 0;
+      const tone = isCx ? (cxLateN ? 'danger' : counts[s.key] ? 'warning' : 'amber') : s.tone;
       return `
-        <button onclick="selectStatus('${escapeHtml(s.key)}')" class="text-left rounded-2xl border p-3 transition-all ${renderToneCard(s.tone)} ${active ? "ring-2 ring-emerald-500 ring-offset-1" : "hover:shadow-sm"}">
+        <button onclick="selectStatus('${escapeHtml(s.key)}')" class="text-left rounded-2xl border p-3 transition-all ${renderToneCard(tone)} ${isCx && cxLateN ? 'ring-1 ring-red-400' : ''} ${active ? "ring-2 ring-emerald-500 ring-offset-1" : "hover:shadow-sm"}">
           <div class="flex items-baseline justify-between gap-1">
             <p class="text-2xl font-bold leading-none">${counts[s.key]}</p>
-            <span class="text-xs font-bold opacity-50 tabular-nums">${pct}%</span>
+            <span class="text-xs font-bold opacity-50 tabular-nums">${isCx ? 'ทุกวัน' : pct + '%'}</span>
           </div>
           <p class="text-xs font-medium mt-1.5 leading-tight">${escapeHtml(s.label)}</p>
+          ${isCx && cxLateN ? `<p class="text-[11px] font-bold mt-1 text-red-700">⚠️ ค้างเกิน ${CX_LATE_H} ชม. ${cxLateN} งาน</p>` : ''}
         </button>`;
     }).join('')}
   </div>`;
@@ -1051,8 +1120,10 @@ function render() {
   if (isAdmin && !ADMIN_GROUP) { ensureAdminGroup(); return; }   // 🧭 แอดมินต้องเลือกกลุ่ม + PIN ก่อน
   const baseOrders = isAdmin ? ALL_ORDERS.filter(o => grpOf(o) === ADMIN_GROUP) : ALL_ORDERS;
 
-  let orders = baseOrders.filter(o => matchesDateFilter(o.date));
-  if (isAdmin && FILTER_STATUS !== "ทั้งหมด") {
+  // ⏳ รออนุมัติยกเลิก = ไม่สนวันที่ที่เลือก (คำขอค้างของงานวันอื่นต้องเห็นด้วย)
+  const cxAll = isAdmin ? baseOrders.filter(isCxWait) : [];
+  let orders = (isAdmin && FILTER_STATUS === '__cancelwait') ? cxAll.slice() : baseOrders.filter(o => matchesDateFilter(o.date));
+  if (isAdmin && FILTER_STATUS !== "ทั้งหมด" && FILTER_STATUS !== '__cancelwait') {
     orders = orders.filter(o => o.status === FILTER_STATUS);
   }
   if (isAdmin && FILTER_OWNER_TYPE) {
@@ -1133,7 +1204,7 @@ function render() {
     html += `
       <div class="space-y-2">
         <p class="text-sm font-semibold text-emerald-900 px-1">สรุปสถานะ${_filterLabel ? ` · <span class="${_labelCls}">${_filterLabel}</span>` : ''}</p>
-        ${dashboardHtml(_statusSummaryOrders, DASHBOARD_STATUSES, o => o.status)}
+        ${dashboardHtml(_statusSummaryOrders, DASHBOARD_STATUSES, o => o.status, cxAll)}
       </div>`;
 
     html += `
@@ -1289,15 +1360,22 @@ async function approveRamp(orderId, answer, btn) {
 // ── ตัดสินคำขอยกเลิกของคนขับ (เหมือนหน้าแจ้งเตือนแอดมิน · Edge admin-decide · ?edgew=0 = GAS) ──
 async function decideCancelTr(orderId, decision, btn) {
   const ok = decision === 'approve';
-  if (!(await confirmModal({ icon: ok ? '🚫' : '🚚', title: ok ? 'อนุมัติให้คนขับยกเลิก?' : 'ให้คนขับวิ่งต่อ?',
-    msg: ok ? orderId + ' — ปลดคนขับออก แล้วกระจายหาคนขับใหม่' : orderId + ' — แจ้งคนขับให้ทำงานต่อ', okText: 'ยืนยัน', danger: ok }))) return;
+  let rejectReason = '';
+  if (ok) {
+    if (!(await confirmModal({ icon: '🚫', title: 'อนุมัติให้คนขับยกเลิก?',
+      msg: orderId + ' — ปลดคนขับออก แล้วกระจายหาคนขับใหม่ทาง LINE', okText: 'อนุมัติยกเลิก', danger: true }))) return;
+  } else {   // 11 พ.ย. เหตุผลตอนปฏิเสธ (ไม่บังคับ) → admin-decide ส่งต่อในข้อความถึงคนขับ
+    const r = await promptModal({ icon: '🚚', title: 'ปฏิเสธ · ให้คนขับวิ่งต่อ?', msg: orderId + ' — แจ้งคนขับให้ทำงานต่อ',
+      placeholder: 'เหตุผลถึงคนขับ (ไม่ใส่ก็ได้)', okText: 'ปฏิเสธ · ให้วิ่งต่อ', cancelText: 'กลับ' });
+    if (r === null) return; rejectReason = r;
+  }
   const wrap = btn.closest('.cancel-decide');
   wrap.querySelectorAll('button').forEach(b => b.disabled = true);
   btn.innerHTML = 'กำลังบันทึก...';
   try {
     const url = useEdgeWrites() ? 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/admin-decide' : GAS_URL;
     const res = await fetch(url, { method:'POST', redirect:'follow', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action:'decideCancel', orderId, decision, userId: window._userId }) });
+      body: JSON.stringify({ action:'decideCancel', orderId, decision, rejectReason, userId: window._userId }) });
     const data = await res.json();
     if (data && data.success) {
       wrap.innerHTML = `<p class="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">${icon("check", 15)}${ok ? 'อนุมัติยกเลิกแล้ว · กำลังหาคนขับใหม่' : 'แจ้งคนขับให้วิ่งต่อแล้ว'}</p>`;
