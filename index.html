@@ -314,7 +314,7 @@ function cancelReasonHtml(cr) {
   if (!m) return line('เหตุผล', cr);
   return line('โดย', m[1] || '—') + (m[2] ? line('เหตุผล', m[2]) : '');
 }
-function timelineHtml(status, timestamps, steps, cancelReason, checkinSource) {
+function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, cancelReq) {
   timestamps = timestamps || {};
   const isCancelled = status === "ยกเลิก";
   const exception = EXCEPTION_STATUSES[status];
@@ -348,7 +348,7 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource) {
         <span>ออเดอร์นี้ถูกยกเลิกแล้ว${cancelReasonHtml(cancelReason)}</span>
       </div>`;
   } else if (exception) {
-    const msg = exception.label === "ถึงลานเท" ? "คนขับแวะลานเทก่อนไปจุดต่อไป" : "งานนี้ต้องการความช่วยเหลือจาก Admin";
+    const msg = exception.label === "ถึงลานเท" ? "คนขับแวะลานเทก่อนไปจุดต่อไป" : cancelReq ? "คนขับขอยกเลิกงาน — รอแอดมินตัดสิน" : "งานนี้ต้องการความช่วยเหลือจาก Admin";
     footerHtml = `
       <div class="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl border ${toneClasses(exception.tone)}">
         ${icon(exception.icon, 14)}${msg}
@@ -518,9 +518,26 @@ function openWeighSlips(orderId) {
 }
 
 // ── ปุ่มตอบแทนลานเท — เฉพาะ Admin และออเดอร์สถานะ "แจ้งเตือนแอดมิน" ──
+// 11 พ.ย. "แจ้งเตือนแอดมิน" มี 2 เหตุ: ลานเทไม่ตอบ / คนขับขอยกเลิก (cancelRequest) — งานห้าง (Packing) ไม่มีลานเท
 function rampApproveHtml(order, isAdmin) {
   if (!isAdmin || order.status !== 'แจ้งเตือนแอดมิน') return '';
   const oid = escapeHtml(order.orderId);
+  if (order.cancelRequest) return `
+    <div class="cancel-decide bg-white border border-red-200 rounded-xl px-3 py-3 space-y-2" data-order="${oid}">
+      <p class="text-sm font-semibold text-red-800">✋ คนขับ${order.driverName ? ' ' + escapeHtml(order.driverName) : ''} ขอยกเลิกงาน</p>
+      <p class="text-xs text-amber-800">📝 เหตุผล: ${escapeHtml(order.cancelRequest)}</p>
+      <div class="flex gap-2">
+        <button onclick="event.stopPropagation(); decideCancelTr('${oid}','approve', this)"
+          class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors">
+          ${icon("check", 15)}อนุมัติยกเลิก
+        </button>
+        <button onclick="event.stopPropagation(); decideCancelTr('${oid}','reject', this)"
+          class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-emerald-300 text-emerald-700 text-sm font-semibold hover:bg-emerald-50 transition-colors">
+          ${icon("x", 15)}ให้วิ่งต่อ
+        </button>
+      </div>
+    </div>`;
+  if (order.jobType === 'Packing' || order.rampCode === '') return '';   // ไม่มีลานเท (GAS เดิมไม่ส่ง rampCode → ดูแค่ jobType)
   return `
     <div class="ramp-approve bg-white border border-amber-300 rounded-xl px-3 py-3 space-y-2" data-order="${oid}">
       <p class="text-sm font-semibold text-amber-900 flex items-center gap-1.5">
@@ -685,7 +702,7 @@ function orderCardHtml(order, idx, isAdmin) {
   if (expanded) {
     let tlHtml;
     if (isAdmin) {
-      tlHtml = timelineHtml(order.status, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource);
+      tlHtml = timelineHtml(order.status, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource, order.cancelRequest);
     } else {
       tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
     }
@@ -1267,6 +1284,26 @@ async function approveRamp(orderId, answer, btn) {
     toast('เกิดข้อผิดพลาด: ' + (e.message || e));
     render();
   }
+}
+
+// ── ตัดสินคำขอยกเลิกของคนขับ (เหมือนหน้าแจ้งเตือนแอดมิน · Edge admin-decide · ?edgew=0 = GAS) ──
+async function decideCancelTr(orderId, decision, btn) {
+  const ok = decision === 'approve';
+  if (!(await confirmModal({ icon: ok ? '🚫' : '🚚', title: ok ? 'อนุมัติให้คนขับยกเลิก?' : 'ให้คนขับวิ่งต่อ?',
+    msg: ok ? orderId + ' — ปลดคนขับออก แล้วกระจายหาคนขับใหม่' : orderId + ' — แจ้งคนขับให้ทำงานต่อ', okText: 'ยืนยัน', danger: ok }))) return;
+  const wrap = btn.closest('.cancel-decide');
+  wrap.querySelectorAll('button').forEach(b => b.disabled = true);
+  btn.innerHTML = 'กำลังบันทึก...';
+  try {
+    const url = useEdgeWrites() ? 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/admin-decide' : GAS_URL;
+    const res = await fetch(url, { method:'POST', redirect:'follow', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action:'decideCancel', orderId, decision, userId: window._userId }) });
+    const data = await res.json();
+    if (data && data.success) {
+      wrap.innerHTML = `<p class="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">${icon("check", 15)}${ok ? 'อนุมัติยกเลิกแล้ว · กำลังหาคนขับใหม่' : 'แจ้งคนขับให้วิ่งต่อแล้ว'}</p>`;
+      setTimeout(() => loadOrders(true), 1200);
+    } else { toast('ไม่สำเร็จ: ' + ((data && data.error) || 'unknown')); render(); }
+  } catch (e) { toast('เกิดข้อผิดพลาด: ' + (e.message || e)); render(); }
 }
 
 // ── เปลี่ยนคนขับ (แอดมิน) ────────────────────────────────
