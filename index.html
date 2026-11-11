@@ -75,6 +75,8 @@ function postAction(payload){
 }
 const PACKING_URL = '/SSB-App/packing/';   // แดชบอร์ด Packing (SSB-App)
 let PK_PENDING = null;    // จำนวนคำขอ Packing ค้างจัดรถ (จาก getPkSummary)
+const PK_SLIP_EDGE = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/pk-slip-ocr';
+let PK_SLIPS = {};        // 🧾 ใบชั่งออก งาน PK (Edge pk-slip-ocr) — orderId → ผลอ่าน (11 พ.ย.)
 const LIFF_ID = '2010274217-KGSFWvpp';
 const ASSIGN_DRIVER_URL = 'https://liff.line.me/2010274217-BF41B8c2';
 const DASHBOARD_URL = 'https://liff.line.me/2010274217-Ot7vGhri';   // SSB Dashboard (LIFF_ID_ADMIN)
@@ -548,6 +550,100 @@ function openWeighSlips(orderId) {
   document.body.appendChild(ov);
 }
 
+// 🧾 ใบชั่งออก งาน PK (11 พ.ย.) — คนขับถ่ายใบชั่งตอนออกโรงงาน · Edge pk-slip-ocr อ่านหลังบ้าน (cron 2 นาที)
+//   แอดมินเห็นชิปบนการ์ด → กดดูรูป + ตัวเลข (เข้า/ออก/สุทธิ) + ใบผ่านประตู · ปุ่มอ่านใหม่
+const _pkKg = n => (n == null || n === '' || !isFinite(+n)) ? '' : (+n).toLocaleString('en-US');
+function pkSlipChipHtml(order) {
+  const s = PK_SLIPS[order.orderId];
+  if (!s) return '';
+  const bad = s.status !== 'ok', warn = (s.warn || []).length > 0;
+  const cls = bad ? 'bg-red-100 text-red-700 hover:bg-red-200' : warn ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200';
+  const txt = bad ? 'อ่านไม่ได้' : _pkKg(s.net_kg) + ' กก.';
+  return `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openPkSlip('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${cls} transition-colors cursor-pointer no-underline" title="ใบชั่งออก (อ่านอัตโนมัติ)">🧾 ${warn && !bad ? '⚠️ ' : ''}${escapeHtml(txt)}</a>`;
+}
+// กล่องใบชั่งออกในส่วนรายละเอียด (กางการ์ดแล้วเห็นชัด · กดดูรูป/รายละเอียด)
+function pkSlipBoxHtml(order) {
+  const s = PK_SLIPS[order.orderId];
+  if (!s) return '';
+  const ok = s.status === 'ok' && s.net_kg != null, warn = (s.warn || []).length > 0;
+  const tone = !ok ? 'bg-red-50 border-red-200 text-red-800' : warn ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900';
+  const nums = ok ? `สุทธิ <b class="text-base tabular-nums">${_pkKg(s.net_kg)}</b> กก.${s.tare_kg != null && s.gross_kg != null ? ` <span class="text-xs opacity-70 tabular-nums">(เข้า ${_pkKg(s.tare_kg)} · ออก ${_pkKg(s.gross_kg)})</span>` : ''}` : 'อ่านตัวเลขไม่ได้ — ดูจากรูป';
+  return `<div class="flex flex-wrap items-center justify-between gap-2 text-sm border rounded-xl px-3 py-2 ${tone}">
+    <span>🧾 ใบชั่งออก · ${nums}${warn && ok ? ' ⚠️' : ''}${s.slip_no ? ` <span class="text-xs opacity-70">· ใบที่ ${escapeHtml(s.slip_no)}</span>` : ''}</span>
+    <button onclick="event.stopPropagation(); openPkSlip('${escapeHtml(order.orderId)}')" class="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800">ดูใบชั่ง</button>
+  </div>`;
+}
+// โหลดผลใบชั่งออกของงาน Packing ที่มีคนขับแล้ว (ทีละ ≤50 ใบ) · ได้ของใหม่ค่อย render ซ้ำ
+async function loadPkSlips() {
+  const ids = (ALL_ORDERS || []).filter(o => o.jobType === 'Packing' && o.driverName && o.status !== 'ยกเลิก').map(o => o.orderId).filter(id => /^ORD-[\w-]+$/.test(id));
+  if (!ids.length) return;
+  const next = {};
+  for (let i = 0; i < ids.length; i += 50) {
+    try {
+      const r = await fetch(`${PK_SLIP_EDGE}?action=get&order=${encodeURIComponent(ids.slice(i, i + 50).join(','))}`).then(x => x.json());
+      (r && r.ok && r.rows || []).forEach(x => { if (x && x.order_id) next[x.order_id] = x; });
+    } catch (e) { return; }   // โหลดไม่ได้ = คงของเดิม ไม่ทำให้หน้าพัง
+  }
+  const sig = o => JSON.stringify(Object.keys(o).sort().map(k => [k, o[k].status, o[k].net_kg, o[k].ocr_at]));
+  if (sig(next) === sig(PK_SLIPS)) return;
+  PK_SLIPS = next;
+  render();
+}
+function openPkSlip(orderId) {
+  const s = PK_SLIPS[orderId];
+  if (!s) { toast('ยังไม่มีใบชั่งออกครับ'); return; }
+  const o = (ALL_ORDERS || []).find(x => x.orderId === orderId) || {};
+  const row = (k, v, b) => v ? `<div class="flex justify-between gap-3 ${b ? 'font-bold text-emerald-900 text-sm' : 'text-emerald-800'}"><span>${k}</span><span class="tabular-nums text-right">${v}</span></div>` : '';
+  const g = s.gate || {}, items = Array.isArray(g.items) ? g.items : [];
+  const dt = s.slip_date ? fmtDMY(s.slip_date) : '';
+  const url = String(s.photo_url || '').replace(/"/g, '%22');
+  const bad = s.status !== 'ok';
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-[121] flex items-center justify-center bg-black/40 p-4';
+  ov.innerHTML = `<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-5 max-h-[85vh] overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-between mb-1"><p class="font-bold text-emerald-900">🧾 ใบชั่งออก (งาน Packing)</p>
+      <button data-x class="text-emerald-700 text-2xl leading-none px-1">×</button></div>
+    <p class="text-xs text-amber-700/70 mb-2 break-all">${escapeHtml(orderId)}${o.driverName ? ' · 👤 ' + escapeHtml(o.driverName) : ''}${o.plate ? ' (' + escapeHtml(o.plate) + ')' : ''}</p>
+    <div class="space-y-0.5 text-xs border-y border-amber-100 py-2.5">
+      ${bad ? `<div class="text-red-700 font-semibold">อ่านตัวเลขจากรูปไม่ได้ — ดูจากรูปด้านล่าง หรือกด "อ่านใหม่"</div>` : ''}
+      ${row('🪶 ชั่งเข้า (รถเปล่า)', s.tare_kg != null ? _pkKg(s.tare_kg) + ' กก.' : '')}
+      ${row('🏋️ ชั่งออก (รถหนัก)', s.gross_kg != null ? _pkKg(s.gross_kg) + ' กก.' : '')}
+      ${row('✅ สุทธิ', s.net_kg != null ? _pkKg(s.net_kg) + ' กก.' : '', 1)}
+      ${row('เลขที่ใบชั่ง', escapeHtml(s.slip_no || ''))}
+      ${row('วันที่', escapeHtml(dt))}
+      ${row('เวลาเข้า / ออก', (s.time_in || s.time_out) ? escapeHtml((s.time_in || '-') + ' / ' + (s.time_out || '-')) : '')}
+      ${row('ทะเบียนในใบ', escapeHtml(s.plate || ''))}
+    </div>
+    ${(s.warn || []).length ? `<div class="mt-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">${s.warn.map(w => '⚠️ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
+    ${(g.doc_no || items.length) ? `<div class="mt-2 text-xs text-emerald-800">
+      <div class="font-semibold text-emerald-900 mb-0.5">📋 ใบผ่านประตู${g.doc_no ? ' ' + escapeHtml(g.doc_no) : ''}</div>
+      ${items.map(it => `<div class="flex justify-between gap-3"><span>${escapeHtml(it.name)}</span><span class="tabular-nums">${escapeHtml(typeof it.qty === 'number' ? _pkKg(it.qty) : it.qty || '')}</span></div>`).join('')}
+    </div>` : ''}
+    ${url ? `<a href="${url}" target="_blank" rel="noopener" class="block mt-3" title="แตะเพื่อดูรูปเต็ม">
+      <img src="${url}" loading="lazy" alt="รูปใบชั่งออก" class="w-full rounded-lg border border-amber-200 bg-amber-50"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+      <span class="hidden items-center justify-center gap-1 py-2 text-xs text-emerald-700 underline">โหลดรูปไม่ได้ — แตะเปิดในแท็บใหม่</span></a>` : ''}
+    <div class="flex items-center justify-between gap-2 mt-3">
+      <span class="text-[11px] text-emerald-700/60">อ่านอัตโนมัติ ${s.ocr_at ? escapeHtml(new Date(s.ocr_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })) : ''} · ตรวจกับรูปอีกครั้ง</span>
+      <button data-re class="shrink-0 px-2.5 py-1 rounded-lg bg-white border border-emerald-300 text-emerald-700 text-xs font-semibold hover:bg-emerald-50">🔄 อ่านใหม่</button>
+    </div></div>`;
+  const close = () => ov.remove();
+  ov.querySelector('[data-x]').onclick = close;
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('[data-re]').onclick = async function () {
+    if (!(await confirmModal({ icon: '🔄', title: 'อ่านใบชั่งนี้ใหม่?', msg: 'ระบบจะอ่านตัวเลขจากรูปเดิมอีกครั้ง (ใช้เวลาไม่กี่วินาที)', okText: 'อ่านใหม่' }))) return;
+    const btn = this; btn.disabled = true; btn.textContent = 'กำลังอ่าน…';
+    try {
+      const r = await fetch(PK_SLIP_EDGE, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'rerun', userId: window._userId || '', orderId: orderId, name: String(window._userName || '').slice(0, 60) }) }).then(x => x.json());
+      if (!r || !r.ok || !r.row) { toast('❌ ' + ((r && r.error) || 'อ่านใหม่ไม่สำเร็จ')); btn.disabled = false; btn.textContent = '🔄 อ่านใหม่'; return; }
+      PK_SLIPS[orderId] = r.row; close(); render(); openPkSlip(orderId);
+      toast(r.row.status === 'ok' ? '✅ อ่านใหม่แล้ว' : '⚠️ ยังอ่านตัวเลขไม่ได้');
+    } catch (e) { toast('❌ ' + (e.message || e)); btn.disabled = false; btn.textContent = '🔄 อ่านใหม่'; }
+  };
+  document.body.appendChild(ov);
+}
+
 // ── ปุ่มตอบแทนลานเท — เฉพาะ Admin และออเดอร์สถานะ "แจ้งเตือนแอดมิน" ──
 // 11 พ.ย. "แจ้งเตือนแอดมิน" มี 2 เหตุ: ลานเทไม่ตอบ / คนขับขอยกเลิก (cancelRequest) — งานห้าง (Packing) ไม่มีลานเท
 // ⏳ คำขอยกเลิกค้าง (11 พ.ย. คุณน้อง) = "รออนุมัติยกเลิก" หรือ "แจ้งเตือนแอดมิน" ที่มีคนขับ+คำขอ (order-timeouts เคยทับสถานะ)
@@ -751,6 +847,7 @@ function orderCardHtml(order, idx, isAdmin) {
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
     ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors cursor-pointer no-underline" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</a>`
     : '';
+  const pkSlipHtml = isAdmin ? pkSlipChipHtml(order) : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
   const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
@@ -836,6 +933,7 @@ function orderCardHtml(order, idx, isAdmin) {
           <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>`}
           ${order.billName ? `<span><span class="font-medium text-emerald-900">ชื่อในบิล:</span> ${escapeHtml(order.billName)}</span>` : ""}
         </div>
+        ${isAdmin ? pkSlipBoxHtml(order) : ''}
         ${editSectionHtml(order)}
         ${driverHtml}
         ${fleetLineHtml(order)}
@@ -860,6 +958,7 @@ function orderCardHtml(order, idx, isAdmin) {
         </div>
         ${assignDriverHtml}
         <div class="flex items-center gap-2 shrink-0 ml-auto">
+          ${pkSlipHtml}
           ${slipChipHtml}
           ${badgeHtml}
           ${icon("chevron", 18, `text-amber-400 transition-transform ${expanded ? "rotate-90" : ""}`)}
@@ -1317,6 +1416,7 @@ async function loadOrders(isRefresh, uid) {
         if (pk && pk.ok) { PK_PENDING = pk.waiting; refreshPackingChip(); }
       }).catch(() => {});
       loadFleet();   // ตำแหน่งรถสด (วิ่ง/จอด/ดับ + ทิศ) — เบื้องหลัง เติมบนการ์ดเมื่อได้ข้อมูล
+      loadPkSlips(); // 🧾 ใบชั่งออก งาน PK — เบื้องหลัง เติมชิปบนการ์ด
     }
   } catch (e) {
     console.error(e);
