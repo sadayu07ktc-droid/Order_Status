@@ -302,12 +302,47 @@ function customerStatusBadgeHtml(rawStatus) {
   return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${cls}">${icon(isDone ? "check" : "clock", 13)}${label}</span>`;
 }
 
+// 📍 ที่มาของการเช็คอิน "ถึง" — ชุดเดียวกันทุกหน้า (Order_Status / Driver_form / dev-drivers / การ์ด LINE) · 12 พ.ย.
+//   GPS อัตโนมัติ → (GPS) · คนขับกดเอง → (กดเอง) · ไม่ได้เช็คอิน → (ไม่ได้เช็คอิน · เวลา = ตอนกดออก) · ว่าง = ไม่ทราบ (ไม่เคลม GPS)
+//   รายการทุกจุดที่แสดงสถานะ: memory ssb-checkin-status-points.md — แก้ที่หนึ่งต้องแก้ทุกที่
+function checkinTag(source) {
+  const s = String(source || '').trim();
+  if (!s) return '';
+  if (s.indexOf('GPS') !== -1) return 'GPS';
+  if (s === 'ไม่ได้เช็คอิน') return 'ไม่ได้เช็คอิน';
+  return 'กดเอง';
+}
 function checkinLabel(source) {
-  // ป้าย "ถึงลูกค้า" ให้ตรงที่มาจริง: GPS อัตโนมัติ / คนขับกดเอง / ไม่ทราบ
-  const s = String(source || '');
-  if (s.indexOf('GPS') !== -1) return 'ถึงลูกค้า (GPS)';
-  if (s.trim()) return 'ถึงลูกค้า (กดเอง)';
-  return 'ถึงลูกค้า';   // ไม่ทราบที่มา → ไม่เคลม GPS
+  const t = checkinTag(source);
+  return t ? 'ถึงลูกค้า (' + t + ')' : 'ถึงลูกค้า';
+}
+// ชิปที่มาใต้ขั้น "ถึง…" (GPS เขียว · กดเอง ส้ม · ไม่ได้เช็คอิน แดง)
+function checkinChip(source, distM) {
+  const t = checkinTag(source);
+  if (!t) return '';
+  const cls = t === 'GPS' ? 'bg-emerald-100 text-emerald-800' : t === 'กดเอง' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700';
+  const ico = t === 'GPS' ? '🛰️' : t === 'กดเอง' ? '👆' : '⚠️';
+  return `<span class="inline-block mt-0.5 text-[9.5px] font-semibold px-1.5 py-px rounded-full ${cls}">${ico} ${t}${t === 'GPS' && distM != null ? ' ' + distM + 'ม.' : ''}</span>`;
+}
+// 📦 งาน PK: ไทม์ไลน์ทุกจุดส่ง (order.pkStops จาก Edge order-tracker) — ออกจาก SSB → จุด 1..N (เวลาถึง+ที่มา / เวลาเสร็จ) → กลับถึง SSB
+function pkFlowSteps(order) {
+  const ps = order.pkStops || [];
+  const base = FLOW_STEPS.filter(s => ['รอยืนยัน', 'ยืนยันแล้ว', 'รับงานแล้ว'].includes(s.key));
+  const out = base.map(s => ({ ...s }));
+  out.push({ key: 'เริ่มงานแล้ว', label: 'ออกจาก SSB', icon: 'truck' });
+  ps.forEach(p => out.push({ key: 'pk' + p.seq, label: 'จุด ' + p.seq + ' · ' + escapeHtml(p.name || '—'), icon: 'pin',
+    ts: p.doneAt ? 'เสร็จ ' + p.doneAt : '', arr: p }));
+  out.push({ key: 'เสร็จงาน', label: 'กลับถึง SSB', icon: 'home' });
+  return out;
+}
+// ขั้นล่าสุดที่ทำแล้วของงาน PK (ใช้แทนการจับคู่สถานะ — สถานะ PK ไม่ตรงกับชื่อขั้น)
+function pkDoneIdx(order, steps) {
+  const st = order.status;
+  if (st === 'เสร็จงาน') return steps.length - 1;
+  let idx = steps.findIndex(s => s.key === st);   // รอยืนยัน/ยืนยันแล้ว/รับงานแล้ว/เริ่มงานแล้ว
+  steps.forEach((s, i) => { if (s.arr && (s.arr.doneAt || (st === 'ถึงลานขากลับ' || st === 'ถึงลาน'))) idx = Math.max(idx, i); });
+  if (idx < 0 && ['ถึงลานวางกระบะ', 'ถึงลูกค้า', 'ออกจากลูกค้า', 'ถึงลานขากลับ', 'ถึงลาน'].includes(st)) idx = steps.findIndex(s => s.key === 'เริ่มงานแล้ว');
+  return idx;
 }
 
 // cancel_reason = "ยกเลิกโดย<ใคร> — <เหตุผล>" (order-actions) → แยกแสดง โดย / เหตุผล
@@ -318,18 +353,24 @@ function cancelReasonHtml(cr) {
   if (!m) return line('เหตุผล', cr);
   return line('โดย', m[1] || '—') + (m[2] ? line('เหตุผล', m[2]) : '');
 }
-function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, cancelReq) {
+function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, cancelReq, forceIdx) {
   timestamps = timestamps || {};
   const isCancelled = status === "ยกเลิก";
   const exception = EXCEPTION_STATUSES[status];
-  let currentIdx = steps.findIndex(s => s.key === status);
+  let currentIdx = forceIdx != null ? forceIdx : steps.findIndex(s => s.key === status);   // forceIdx = งาน PK (นับจากจุดที่เสร็จ)
   const effectiveIdx = currentIdx === -1 ? 0 : currentIdx;
 
   let stepsHtml = steps.map((step, idx) => {
     const done = idx <= effectiveIdx && currentIdx !== -1;
     const isLast = idx === steps.length - 1;
-    const ts = timestamps[step.key];
-    const label = (step.key === 'ถึงลูกค้า') ? checkinLabel(checkinSource) : step.label;
+    const ts = step.ts != null ? step.ts : timestamps[step.key];
+    // 📍 ที่มาการเช็คอินทุกขั้น "ถึง…": ถึงลูกค้า = checkin_source · ถึงลาน (วางกระบะ/ขากลับ) = คนขับกดเอง (ไม่มี GPS) · จุดส่ง PK = ชิปต่อจุด
+    const label = (step.key === 'ถึงลูกค้า') ? checkinLabel(checkinSource)
+      : ((step.key === 'ถึงลานวางกระบะ' || step.key === 'ถึงลานขากลับ') && ts) ? step.label + ' (กดเอง)' : step.label;
+    const a = step.arr, w = a ? 'w-24' : 'w-20';
+    const arrHtml = !a ? '' : a.arrAt
+      ? `<span class="text-[10px] text-center ${w} leading-tight tabular-nums text-emerald-800">ถึง ${escapeHtml(a.arrAt.slice(-5))}<br>${checkinChip(a.src, a.distM)}</span>`
+      : `<span class="text-[10px] text-center ${w} leading-tight text-slate-400">${a.doneAt ? 'ไม่มีเวลาถึง GPS' : ''}</span>`;
     const circleCls = done ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-amber-400";
     const labelCls  = done ? "text-emerald-800" : "text-amber-700/60";
     const connectorCls = (idx < effectiveIdx && currentIdx !== -1) ? "bg-emerald-500" : "bg-amber-200";
@@ -337,8 +378,9 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, ca
       <div class="flex items-start min-w-fit">
         <div class="flex flex-col items-center gap-1.5">
           <div class="flex items-center justify-center w-9 h-9 rounded-full border-2 transition-colors ${circleCls}">${icon(step.icon, 16)}</div>
-          <span class="text-[11px] font-medium text-center w-20 leading-tight ${labelCls}">${label}</span>
-          <span class="text-[10px] text-amber-600/70 text-center w-20 leading-tight tabular-nums">${ts || "—"}</span>
+          <span class="text-[11px] font-medium text-center ${w} leading-tight ${labelCls}" ${a ? 'style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden"' : ''}>${label}</span>
+          ${arrHtml}
+          <span class="text-[10px] text-amber-600/70 text-center ${w} leading-tight tabular-nums">${ts || "—"}</span>
         </div>
         ${!isLast ? `<div class="h-0.5 w-10 sm:w-16 mx-1 mt-[18px] rounded transition-colors ${connectorCls}"></div>` : ''}
       </div>`;
@@ -891,6 +933,10 @@ function orderCardHtml(order, idx, isAdmin) {
   if (expanded) {
     let tlHtml;
     if (isAdmin) {
+      if (order.pkStops && order.pkStops.length) {   // 📦 งาน PK → ไทม์ไลน์ทุกจุดส่ง + เวลาถึง/ที่มา ต่อจุด
+        const ps = pkFlowSteps(order);
+        tlHtml = timelineHtml(order.status, order.timestamps, ps, order.cancelReason, order.checkinSource, order.cancelRequest, pkDoneIdx(order, ps));
+      } else
       tlHtml = timelineHtml(order.status, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource, order.cancelRequest);
     } else {
       tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
