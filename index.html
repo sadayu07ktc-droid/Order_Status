@@ -160,6 +160,8 @@ function toCustomerStatus(rawStatus) {
     "รออนุมัติยกเลิก": "จัดหารถแล้ว",   // ← เพิ่ม
     "ถึงลาน": "จัดหารถแล้ว",
     "เริ่มงานแล้ว": "ออกเดินทาง",
+    "ถึงลานวางกระบะ": "ออกเดินทาง",     // 12 พ.ย. เดิมไม่มี → ตกเป็น "รอยืนยัน"
+    "ถึงลานขากลับ": "ถึงหน้างาน",
     "ถึงลูกค้า": "ถึงหน้างาน",
     "ออกจากลูกค้า": "ถึงหน้างาน",
     "เสร็จงาน": "จัดส่งสำเร็จ",
@@ -272,7 +274,26 @@ function renderToneCard(tone) {
   }
 }
 
-function statusBadgeHtml(status) {
+/* 📦 12 พ.ย. คุณน้อง "งาน packing ไม่มีลานขากลับ": สถานะ PK ใช้ช่องร่วมกับงานไร่ (ค่าใน DB เหมือนเดิม) → โชว์ตามฟอร์มคนขับ
+   ช่องตามจำนวนจุด (= pk-driver PK_SLOTS): 1 จุด = ลูกค้า · 2 = ลูกค้า → ลานขากลับ · 3+ = ลานวางกระบะ → ลูกค้า → ลานขากลับ
+   ⚠️ ตรงกับ dev-drivers.html stTh / schedule.html / orders.html / ManageDrivers / SSB-App packing.js */
+function pkStatusLabel(st, n) {   // n = จำนวนจุด (0 = ไม่รู้ → ป้ายกลางๆ)
+  if (st === 'เริ่มงานแล้ว') return 'ออกจาก SSB แล้ว';
+  if (st === 'ถึงลูกค้า') return 'เช็คอินถึงร้านแล้ว';
+  const sl = { 'ถึงลานวางกระบะ': 'rampDrop', 'ออกจากลูกค้า': 'client', 'ถึงลานขากลับ': 'ramp', 'ถึงลาน': 'ramp' }[st];
+  if (!sl) return '';
+  if (!n) return sl === 'ramp' ? 'ส่งครบทุกจุด' : sl === 'rampDrop' ? 'ส่งจุด 1 แล้ว' : 'ส่งของแล้ว';
+  const ss = n <= 1 ? ['client'] : n === 2 ? ['client', 'ramp'] : ['rampDrop', 'client', 'ramp'], i = ss.indexOf(sl);
+  if (i < 0) return sl === 'ramp' ? 'ส่งครบทุกจุด' : sl === 'rampDrop' ? 'ส่งจุด 1 แล้ว' : 'ส่งของแล้ว';   // จำนวนจุดไม่ตรง/ไม่รู้
+  const upto = i === ss.length - 1 ? n : i + 1;
+  return upto >= n ? `ส่งครบ ${n} จุด` : `ส่งจุด ${upto} แล้ว`;
+}
+const pkStopCount = o => (o.pkStops && o.pkStops.length) || String(o.pickup || '').split(/\s*\+\s*/).filter(x => x && x !== '—').length || 0;
+const RAMP_BADGE = { 'ถึงลานวางกระบะ': 'แวะวางกระบะ', 'ถึงลานขากลับ': 'รับปาล์มกลับ' };   // งานไร่แวะลาน (= flowStepsFor)
+function statusBadgeHtml(status, order) {
+  const pkLbl = order && order.jobType === 'Packing' ? pkStatusLabel(status, pkStopCount(order)) : '';
+  if (pkLbl) return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border bg-amber-100 text-amber-900 border-amber-400" title="${escapeHtml(status)}">${icon("clock", 13)}${pkLbl}</span>`;
+  if (RAMP_BADGE[status]) return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border bg-amber-100 text-amber-900 border-amber-400">${icon("clock", 13)}${RAMP_BADGE[status]}</span>`;
   const exception = EXCEPTION_STATUSES[status];
   if (exception) {
     return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${toneClasses(exception.tone)}">${icon(exception.icon, 13)}${exception.label}</span>`;
@@ -356,7 +377,7 @@ function cancelReasonHtml(cr) {
 function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, cancelReq, forceIdx) {
   timestamps = timestamps || {};
   const isCancelled = status === "ยกเลิก";
-  const exception = EXCEPTION_STATUSES[status];
+  const exception = (forceIdx != null && status === 'ถึงลาน') ? null : EXCEPTION_STATUSES[status];   // งาน PK ไม่มีลานเท
   let currentIdx = forceIdx != null ? forceIdx : steps.findIndex(s => s.key === status);   // forceIdx = งาน PK (นับจากจุดที่เสร็จ)
   const effectiveIdx = currentIdx === -1 ? 0 : currentIdx;
 
@@ -911,7 +932,7 @@ function orderCardHtml(order, idx, isAdmin) {
     }
   }
 
-  const badgeHtml = isAdmin ? statusBadgeHtml(order.status) : customerStatusBadgeHtml(order.status);
+  const badgeHtml = isAdmin ? statusBadgeHtml(order.status, order) : customerStatusBadgeHtml(order.status);
   // 📄 ชิปใบชั่งน้ำหนัก — โชว์เมื่อชั่งแล้ว (มีรูปใบชั่งอย่างน้อย 1 จุด)
   // ⚠️ ต้องเป็น <a> ไม่ใช่ <button> — การ์ดเป็น <button> อยู่แล้ว (ซ้อน button = HTML invalid → parser ดีดออก layout เพี้ยน)
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
