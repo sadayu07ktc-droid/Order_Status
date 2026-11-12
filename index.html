@@ -556,10 +556,36 @@ const _pkKg = n => (n == null || n === '' || !isFinite(+n)) ? '' : (+n).toLocale
 function pkSlipChipHtml(order) {
   const s = PK_SLIPS[order.orderId];
   if (!s) return '';
-  const bad = s.status !== 'ok', warn = (s.warn || []).length > 0;
-  const cls = bad ? 'bg-red-100 text-red-700 hover:bg-red-200' : warn ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200';
-  const txt = bad ? 'อ่านไม่ได้' : _pkKg(s.net_kg) + ' กก.';
-  return `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openPkSlip('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${cls} transition-colors cursor-pointer no-underline" title="ใบชั่งออก (อ่านอัตโนมัติ)">🧾 ${warn && !bad ? '⚠️ ' : ''}${escapeHtml(txt)}</a>`;
+  const bad = s.status !== 'ok', warn = (s.warn || []).length > 0, over = s.over_kg > 0;
+  const cls = bad || over ? 'bg-red-100 text-red-700 hover:bg-red-200' : warn ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200';
+  const txt = bad ? 'อ่านไม่ได้' : over ? 'เกินกฎหมาย ' + _pkKg(s.over_kg) + ' กก.' : _pkKg(s.net_kg) + ' กก.';
+  return `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openPkSlip('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${cls} transition-colors cursor-pointer no-underline" title="ใบชั่งออก (อ่านอัตโนมัติ)">🧾 ${over ? '🚫 ' : warn && !bad ? '⚠️ ' : ''}${escapeHtml(txt)}</a>`;
+}
+// ⚖️ บรรทัดเทียบเกณฑ์กฎหมาย (Edge pk-slip-ocr legal_kg/over_kg · ตารางรถ / ตามประเภทรถ)
+function pkLegalLine(s) {
+  if (!s || s.status !== 'ok' || !s.legal_kg || s.over_kg == null) return '';
+  return s.over_kg > 0
+    ? `<div class="mt-1 font-bold text-red-700">🚫 เกินกฎหมาย ${_pkKg(s.over_kg)} กก. <span class="font-normal text-xs">(รถหนัก ${_pkKg(s.gross_kg)} / เกณฑ์ ${_pkKg(s.legal_kg)} · ${escapeHtml(s.legal_src || '')})</span></div>`
+    : `<div class="mt-1 text-xs text-emerald-700">✅ ไม่เกินกฎหมาย · รถหนัก ${_pkKg(s.gross_kg)} / ${_pkKg(s.legal_kg)} กก. (${escapeHtml(s.legal_src || '')})</div>`;
+}
+// 🚗 คนขับแจ้งทะเบียนไม่ตรง (Edge drv-plate · order_pending PLATEWRONG) — หายเองเมื่อแอดมินเปลี่ยนทะเบียน
+const DRV_PLATE_EDGE = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/drv-plate';
+let PLATE_REPORTS = {};
+async function loadPlateReports() {
+  try {
+    const r = await fetch(`${DRV_PLATE_EDGE}?action=list&userId=${encodeURIComponent(window._userId || '')}`).then(x => x.json());
+    if (!r || !r.ok) return;
+    const next = {}; (r.rows || []).forEach(x => { next[x.orderId] = x; });
+    if (JSON.stringify(next) === JSON.stringify(PLATE_REPORTS)) return;
+    PLATE_REPORTS = next; render();
+  } catch (e) { /* ไม่มีป้าย = เหมือนเดิม */ }
+}
+function plateReportHtml(order) {
+  const p = PLATE_REPORTS[order.orderId];
+  if (!p) return '';
+  return `<div class="text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-red-800">
+    🚗 <b>คนขับแจ้งทะเบียนไม่ตรง</b> · ในระบบ ${escapeHtml(p.plate)} → ขับจริง <b>${escapeHtml(p.actual || '—')}</b>${p.note ? ' · ' + escapeHtml(p.note) : ''}
+    <div class="text-xs mt-0.5">ขนาดรถมีผลกับค่าแรง — กด "เปลี่ยนทะเบียน" ด้านล่าง แล้วป้ายนี้จะหายเอง</div></div>`;
 }
 // กล่องใบชั่งออกในส่วนรายละเอียด (กางการ์ดแล้วเห็นชัด · กดดูรูป/รายละเอียด)
 function pkSlipBoxHtml(order) {
@@ -568,8 +594,8 @@ function pkSlipBoxHtml(order) {
   const ok = s.status === 'ok' && s.net_kg != null, warn = (s.warn || []).length > 0;
   const tone = !ok ? 'bg-red-50 border-red-200 text-red-800' : warn ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900';
   const nums = ok ? `สุทธิ <b class="text-base tabular-nums">${_pkKg(s.net_kg)}</b> กก.${s.tare_kg != null && s.gross_kg != null ? ` <span class="text-xs opacity-70 tabular-nums">(เข้า ${_pkKg(s.tare_kg)} · ออก ${_pkKg(s.gross_kg)})</span>` : ''}` : 'อ่านตัวเลขไม่ได้ — ดูจากรูป';
-  return `<div class="flex flex-wrap items-center justify-between gap-2 text-sm border rounded-xl px-3 py-2 ${tone}">
-    <span>🧾 ใบชั่งออก · ${nums}${warn && ok ? ' ⚠️' : ''}${s.slip_no ? ` <span class="text-xs opacity-70">· ใบที่ ${escapeHtml(s.slip_no)}</span>` : ''}</span>
+  return `<div class="flex flex-wrap items-center justify-between gap-2 text-sm border rounded-xl px-3 py-2 ${s.over_kg > 0 ? 'bg-red-50 border-red-300 text-red-900' : tone}">
+    <span>🧾 ใบชั่งออก · ${nums}${warn && ok ? ' ⚠️' : ''}${s.slip_no ? ` <span class="text-xs opacity-70">· ใบที่ ${escapeHtml(s.slip_no)}</span>` : ''}${pkLegalLine(s)}</span>
     <button onclick="event.stopPropagation(); openPkSlip('${escapeHtml(order.orderId)}')" class="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800">ดูใบชั่ง</button>
   </div>`;
 }
@@ -613,6 +639,7 @@ function openPkSlip(orderId) {
       ${row('วันที่', escapeHtml(dt))}
       ${row('เวลาเข้า / ออก', (s.time_in || s.time_out) ? escapeHtml((s.time_in || '-') + ' / ' + (s.time_out || '-')) : '')}
       ${row('ทะเบียนในใบ', escapeHtml(s.plate || ''))}
+      ${pkLegalLine(s)}
     </div>
     ${(s.warn || []).length ? `<div class="mt-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">${s.warn.map(w => '⚠️ ' + escapeHtml(w)).join('<br>')}</div>` : ''}
     ${(g.doc_no || items.length) ? `<div class="mt-2 text-xs text-emerald-800">
@@ -847,7 +874,8 @@ function orderCardHtml(order, idx, isAdmin) {
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
     ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors cursor-pointer no-underline" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</a>`
     : '';
-  const pkSlipHtml = isAdmin ? pkSlipChipHtml(order) : '';
+  const pkSlipHtml = isAdmin ? pkSlipChipHtml(order) + (PLATE_REPORTS[order.orderId]
+    ? `<span class="inline-flex items-center shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700" title="คนขับแจ้งทะเบียนไม่ตรง — กางการ์ดดู">🚗 ทะเบียนไม่ตรง</span>` : '') : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
   const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
@@ -934,6 +962,7 @@ function orderCardHtml(order, idx, isAdmin) {
           ${order.billName ? `<span><span class="font-medium text-emerald-900">ชื่อในบิล:</span> ${escapeHtml(order.billName)}</span>` : ""}
         </div>
         ${isAdmin ? pkSlipBoxHtml(order) : ''}
+        ${isAdmin ? plateReportHtml(order) : ''}
         ${editSectionHtml(order)}
         ${driverHtml}
         ${fleetLineHtml(order)}
@@ -1417,6 +1446,7 @@ async function loadOrders(isRefresh, uid) {
       }).catch(() => {});
       loadFleet();   // ตำแหน่งรถสด (วิ่ง/จอด/ดับ + ทิศ) — เบื้องหลัง เติมบนการ์ดเมื่อได้ข้อมูล
       loadPkSlips(); // 🧾 ใบชั่งออก งาน PK — เบื้องหลัง เติมชิปบนการ์ด
+      loadPlateReports(); // 🚗 คนขับแจ้งทะเบียนไม่ตรง
     }
   } catch (e) {
     console.error(e);
