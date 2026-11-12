@@ -564,9 +564,10 @@ function pkSlipChipHtml(order) {
 // ⚖️ บรรทัดเทียบเกณฑ์กฎหมาย (Edge pk-slip-ocr legal_kg/over_kg · ตารางรถ / ตามประเภทรถ)
 function pkLegalLine(s) {
   if (!s || s.status !== 'ok' || !s.legal_kg || s.over_kg == null) return '';
-  return s.over_kg > 0
+  return (s.over_kg > 0
     ? `<div class="mt-1 font-bold text-red-700">🚫 เกินกฎหมาย ${_pkKg(s.over_kg)} กก. <span class="font-normal text-xs">(รถหนัก ${_pkKg(s.gross_kg)} / เกณฑ์ ${_pkKg(s.legal_kg)} · ${escapeHtml(s.legal_src || '')})</span></div>`
-    : `<div class="mt-1 text-xs text-emerald-700">✅ ไม่เกินกฎหมาย · รถหนัก ${_pkKg(s.gross_kg)} / ${_pkKg(s.legal_kg)} กก. (${escapeHtml(s.legal_src || '')})</div>`;
+    : `<div class="mt-1 text-xs text-emerald-700">✅ ไม่เกินกฎหมาย · รถหนัก ${_pkKg(s.gross_kg)} / ${_pkKg(s.legal_kg)} กก. (${escapeHtml(s.legal_src || '')})</div>`)
+    + (s.payload_kg && s.veh_tare_kg ? `<div class="text-xs text-gray-600">📦 บรรทุกสินค้าได้ไม่เกิน ${_pkKg(s.payload_kg)} กก. (รวม ${_pkKg(s.legal_kg)} − รถเปล่า ${_pkKg(s.veh_tare_kg)})</div>` : '');
 }
 // 🚗 คนขับแจ้งทะเบียนไม่ตรง (Edge drv-plate · order_pending PLATEWRONG) — หายเองเมื่อแอดมินเปลี่ยนทะเบียน
 const DRV_PLATE_EDGE = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/drv-plate';
