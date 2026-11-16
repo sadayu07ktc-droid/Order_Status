@@ -933,6 +933,15 @@ function pkDetailHtml(p) {
 // 🧭 16 พ.ย. รูทเที่ยวนี้ (งานขอรถไร่จาก PK) — แอดมินเพิ่มขาก่อนมีคนขับ แล้วกด "หาคนขับ" ที่ขาแรกทีเดียว (Edge order-actions มอบทั้งรูท)
 const legIcon = o => o.jobType === 'Packing' ? '📦' : String(o.jobType || '').indexOf('ปาล์ม') !== -1 ? '🌴' : '🧰';
 function canEditRoute(o) { return !o.driverName && /^PKR-/.test(o.linkedJobId || '') && !(o.routeSeq > 1) && PRE_DRIVER_ST.includes(o.status); }
+// 📍 16 พ.ย. ขางานอื่นๆ: มีพิกัด (เลือกจากค่ากลาง/หมุด DTC) = ปุ่มเปิดแผนที่ · พิมพ์เอง = ป้าย "ยังไม่มีหมุด"
+//   placeLatLng undefined = ข้อมูลมาจาก GAS สำรอง (ไม่มีฟิลด์นี้) → ไม่โชว์อะไร กันป้ายผิด
+function otPinHtml(x) {
+  if (!/^ORD-OT-/.test(x.orderId || '') || x.placeLatLng === undefined) return '';
+  const ll = String(x.placeLatLng || '');
+  return /^-?\d+\.\d+,-?\d+\.\d+$/.test(ll)
+    ? `<a href="https://www.google.com/maps?q=${encodeURIComponent(ll)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-sky-300 text-sky-700 hover:bg-sky-100" title="${escapeHtml(ll)}">📍 แผนที่</a>`
+    : `<span class="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800" title="พิมพ์ชื่อเอง ยังไม่ผูกหมุด DTC/ค่ากลาง">⚠️ ยังไม่มีหมุด</span>`;
+}
 function routeBoxHtml(order) {
   const editable = canEditRoute(order);
   if (!order.routeId && !editable) return '';
@@ -947,7 +956,7 @@ function routeBoxHtml(order) {
         <span class="shrink-0 w-5 text-center text-sky-700 tabular-nums">${i + 1}.</span>
         <span class="min-w-0 flex-1 truncate">${legIcon(x)} ${escapeHtml(x.gardenName || '')}${x.pickup && x.pickup !== '—' && String(x.gardenName || '').indexOf(x.pickup) === -1 ? ' · ' + escapeHtml(x.pickup) : ''}
           <span class="text-[11px] font-normal text-slate-500">${escapeHtml(x.orderId)}${x.driverName ? ' · ' + escapeHtml(x.driverName) : ''}</span></span>
-        ${unlink}
+        ${otPinHtml(x)}${unlink}
       </div>`;
   }).join('');
   const addBtn = editable ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openAddJob('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700">➕ เพิ่มรูท (แวะรับปาล์ม/งานอื่น)</a>` : '';
@@ -1842,10 +1851,59 @@ const OT_TYPES = [['OT01','ส่งคน','🧑‍🤝‍🧑'],['OT02','ข�
   ['OT05','นำรถเข้าซ่อม/ศูนย์','🔧'],['OT06','ขนย้ายเครื่องจักร','⚙️'],['OT07','งานในโรงงาน','🏭'],['OT08','ติดรถ/เรียนงาน/ทดสอบรถ','🚚'],
   ['OT09','ช่วยเหลือฉุกเฉิน','🚨'],['OT10','อื่นๆ (รอระบุ)','📝']];
 let _otPick = '', _otKeep = {detail:'', note:''};
+// 📍 16 พ.ย. ชนิดที่ขับออกนอกโรงงาน = เลือกสถานที่จากค่ากลาง + หมุด DTC (Edge ssb-misc searchPlaces) · ไม่เจอ = พิมพ์เองได้ (ยังไม่มีหมุด)
+//   OT07 งานในโรงงาน / OT08 ติดรถ-เรียนงาน = พิมพ์รายละเอียดอิสระเหมือนเดิม
+const OT_NO_PLACE = ['OT07','OT08'];
+const PLACE_EDGE = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/ssb-misc';
+let _otPlace = null, _otSugg = [], _otSeq = 0, _otTimer = 0;
+const _otCache = {};
+const otNeedsPlace = () => !!_otPick && OT_NO_PLACE.indexOf(_otPick) < 0;
+function otPlaceInput(v){
+  if(_otPlace && v.trim() !== _otPlace.name) _otPlace = null;   // แก้ชื่อหลังเลือก = กลายเป็นพิมพ์เอง
+  _otRenderPlaceTag();
+  clearTimeout(_otTimer);
+  const q = v.trim();
+  if(q.length < 2 || _otPlace){ _otSugg = []; _otRenderSugg(); return; }
+  _otTimer = setTimeout(()=>otPlaceSearch(q), 350);
+}
+async function otPlaceSearch(q){
+  const seq = ++_otSeq;
+  let r = _otCache[q];
+  if(!r){
+    document.getElementById('ot-sugg') && (document.getElementById('ot-sugg').innerHTML = '<p class="text-xs text-emerald-700 px-3 py-2">กำลังค้น...</p>');
+    try{
+      const d = await fetch(`${PLACE_EDGE}?action=searchPlaces&userId=${encodeURIComponent(window._userId||'')}&q=${encodeURIComponent(q)}`).then(x=>x.json());
+      if(!d || !d.ok) throw new Error((d && (d.denied ? 'ไม่มีสิทธิ์' : d.error)) || 'ค้นไม่สำเร็จ');
+      r = _otCache[q] = d.places || [];
+    }catch(e){ if(seq===_otSeq){ _otSugg=[]; const s=document.getElementById('ot-sugg'); if(s) s.innerHTML=`<p class="text-xs text-red-600 px-3 py-2">ค้นไม่สำเร็จ (${escapeHtml(e.message||'')}) · พิมพ์ชื่อเองได้</p>`; } return; }
+  }
+  if(seq !== _otSeq) return;   // พิมพ์ต่อระหว่างรอ → ทิ้งผลเก่า
+  _otSugg = r; _otRenderSugg(q);
+}
+function _otRenderSugg(q){
+  const s = document.getElementById('ot-sugg'); if(!s) return;
+  if(!_otSugg.length){ s.innerHTML = q ? `<p class="text-xs text-amber-700 px-3 py-2">ไม่พบ "${escapeHtml(q)}" ในค่ากลาง/หมุด DTC · ใช้ชื่อที่พิมพ์ได้ (จะติดป้าย ยังไม่มีหมุด)</p>` : ''; return; }
+  s.innerHTML = _otSugg.map((p,i)=>`<button type="button" onclick="otPickPlace(${i})" class="w-full text-left px-3 py-1.5 hover:bg-emerald-50 border-b border-amber-100 last:border-0">
+      <span class="block text-sm font-semibold text-emerald-900 truncate">${p.latlng?'📍':'▫️'} ${escapeHtml(p.name)}</span>
+      <span class="block text-[11px] text-emerald-700/70">${p.km ? 'ค่ากลาง '+escapeHtml(String(p.km))+' กม.' : 'ยังไม่มีค่ากลาง'} · ${p.latlng ? 'มีหมุด DTC' : 'ยังไม่มีหมุด'}</span>
+    </button>`).join('');
+}
+function otPickPlace(i){
+  const p = _otSugg[i]; if(!p) return;
+  _otPlace = p; _otSugg = [];
+  const el = document.getElementById('ot-detail'); if(el) el.value = p.name;
+  _otRenderSugg(); _otRenderPlaceTag();
+}
+function _otRenderPlaceTag(){
+  const t = document.getElementById('ot-place-tag'); if(!t) return;
+  const v = ((document.getElementById('ot-detail')||{}).value||'').trim();
+  if(_otPlace) t.innerHTML = `<span class="inline-block px-2 py-0.5 rounded-lg ${_otPlace.latlng?'bg-sky-50 border border-sky-300 text-sky-800':'bg-amber-50 border border-amber-300 text-amber-800'}">${_otPlace.latlng?'📍 มีหมุด DTC':'⚠️ ยังไม่มีหมุด'} · ${_otPlace.km?'ค่ากลาง '+escapeHtml(String(_otPlace.km))+' กม.':'ยังไม่มีค่ากลาง'}</span>`;
+  else t.innerHTML = v ? '<span class="inline-block px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-800">⚠️ พิมพ์เอง · ยังไม่มีหมุด (DEV ผูกหมุด/ค่ากลางทีหลังได้)</span>' : '';
+}
 function switchAddJobMode(m){ _addJobMode = m; _renderAddJobTabs(); loadAddJobList(); }
 async function loadAddJobList(){
   const list = document.getElementById('addjob-list');
-  if(_addJobMode==='other'){ _otPick=''; _otKeep={detail:'',note:''}; list.innerHTML=''; _renderAddJobList(); return; }   // ไม่ต้องโหลดอะไร
+  if(_addJobMode==='other'){ _otPick=''; _otKeep={detail:'',note:''}; _otPlace=null; _otSugg=[]; list.innerHTML=''; _renderAddJobList(); return; }   // ไม่ต้องโหลดอะไร
   if(_addJobMode==='palm'){ _palmList=_palmCandidates(); _renderAddJobList(); return; }
   const mode0 = _addJobMode;
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลด...</p>';
@@ -1866,10 +1924,15 @@ function _renderAddJobList(){
     const dv = dEl ? dEl.value : _otKeep.detail, nv = nEl ? nEl.value : _otKeep.note;   // ส่งพลาด = ค่าที่พิมพ์ไว้ไม่หาย
     list.innerHTML = `<p class="text-xs font-semibold text-emerald-800">1 · เลือกชนิดงาน</p>
       <div class="grid grid-cols-2 gap-2">${OT_TYPES.map(([c,n,i])=>`<button onclick="pickOtJob('${c}')" class="text-left px-3 py-2 rounded-xl border text-sm font-semibold transition-colors ${_otPick===c?'bg-emerald-600 border-emerald-600 text-white':'bg-white border-amber-200 text-emerald-900 hover:bg-amber-50'}">${i} ${escapeHtml(n)}</button>`).join('')}</div>
-      <p class="text-xs font-semibold text-emerald-800 pt-1">2 · รายละเอียด / ปลายทาง <span class="text-red-600">*</span></p>
-      <input id="ot-detail" maxlength="200" value="${escapeHtml(dv)}" placeholder="เช่น ส่งคน 5 คนไปไร่บ่อทอง · เข้าศูนย์ฮีโน่ชลบุรี" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
-      <input id="ot-note" maxlength="300" value="${escapeHtml(nv)}" placeholder="หมายเหตุถึงคนขับ (ถ้ามี)" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
+      ${otNeedsPlace() ? `<p class="text-xs font-semibold text-emerald-800 pt-1">2 · สถานที่ / ปลายทาง <span class="text-red-600">*</span> <span class="font-normal text-emerald-700/70">พิมพ์ค้นจากค่ากลาง + หมุด DTC</span></p>
+      <input id="ot-detail" maxlength="200" value="${escapeHtml(dv)}" oninput="otPlaceInput(this.value)" autocomplete="off" placeholder="เช่น พาเลท LOSCAM · อมรชัย · ปูนขาว" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
+      <div id="ot-sugg" class="rounded-xl border border-amber-200 bg-white max-h-56 overflow-y-auto empty:hidden"></div>
+      <div id="ot-place-tag" class="text-[11px]"></div>`
+      : `<p class="text-xs font-semibold text-emerald-800 pt-1">2 · รายละเอียด / ปลายทาง <span class="text-red-600">*</span></p>
+      <input id="ot-detail" maxlength="200" value="${escapeHtml(dv)}" placeholder="เช่น ส่งคน 5 คนไปไร่บ่อทอง · เข้าศูนย์ฮีโน่ชลบุรี" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">`}
+      <input id="ot-note" maxlength="300" value="${escapeHtml(nv)}" placeholder="${otNeedsPlace() ? 'สิ่งที่ต้องทำ / หมายเหตุถึงคนขับ เช่น รับพาเลท 50 แผ่น' : 'หมายเหตุถึงคนขับ (ถ้ามี)'}" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
       <button onclick="doAddJob('other',0)" class="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 ${_otPick?'':'opacity-50'}">➕ เพิ่มงานอื่นๆ เข้าทริป</button>`;
+    if(otNeedsPlace()){ _otRenderPlaceTag(); if(!_otPlace && dv.trim().length>=2) otPlaceSearch(dv.trim()); }   // สลับชนิดงาน/ส่งพลาด → ค้นชื่อเดิมต่อ
     return;
   }
   if(_addJobMode==='palm'){
@@ -1907,7 +1970,9 @@ async function doAddJob(mode, idx){
     const t=OT_TYPES.find(x=>x[0]===_otPick); if(!t){ toast('เลือกชนิดงานก่อน'); return; }
     const detail=(document.getElementById('ot-detail').value||'').trim(), note=(document.getElementById('ot-note').value||'').trim();
     if(!detail){ toast('ใส่รายละเอียด/ปลายทางก่อน'); document.getElementById('ot-detail').focus(); return; }
-    _otKeep={detail,note}; payload={source:'other',otCode:t[0],detail,note}; label=`${t[2]} ${t[1]} · ${detail}${note?' · 📝 '+note:''}`;
+    const pl = otNeedsPlace() && _otPlace && _otPlace.name === detail ? _otPlace : null;
+    _otKeep={detail,note}; payload={source:'other',otCode:t[0],detail,note,placeLatLng: pl && pl.latlng || ''};
+    label=`${t[2]} ${t[1]} · ${detail}${otNeedsPlace() ? (pl && pl.latlng ? ' (📍 มีหมุด)' : ' (⚠️ ยังไม่มีหมุด)') : ''}${note?' · 📝 '+note:''}`;
   }
   else if(mode==='palm'){ const x=_palmList[idx]; if(!x) return; payload={source:'palm',palmOrderId:x.orderId}; label=`🌴 ${x.gardenName||''} · ${x.orderId}`; }
   else { const r=(_rampList||[])[idx]; if(!r) return; payload={source:'ramp',rampCode:r.code,rampName:r.name}; label=`รับปาล์มขากลับ · ${r.name||r.code}`; }
