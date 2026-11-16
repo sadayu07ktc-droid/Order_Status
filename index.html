@@ -936,9 +936,11 @@ function canEditRoute(o) { return !o.driverName && /^PKR-/.test(o.linkedJobId ||
 // 📍 16 พ.ย. ขางานอื่นๆ: มีพิกัด (เลือกจากค่ากลาง/หมุด DTC) = ปุ่มเปิดแผนที่ · พิมพ์เอง = ป้าย "ยังไม่มีหมุด"
 //   placeLatLng undefined = ข้อมูลมาจาก GAS สำรอง (ไม่มีฟิลด์นี้) → ไม่โชว์อะไร กันป้ายผิด
 function otPinHtml(x) {
-  if (!/^ORD-OT-/.test(x.orderId || '') || x.placeLatLng === undefined) return '';
+  if (!(/^ORD-OT-/.test(x.orderId || '') || x.jobType === 'อื่นๆ') || x.placeLatLng === undefined) return '';
   const ll = String(x.placeLatLng || '');
-  return /^-?\d+\.\d+,-?\d+\.\d+$/.test(ll)
+  const has = /^-?\d+\.\d+,-?\d+\.\d+$/.test(ll);
+  if (!has && /ยกเลิก|สำเร็จ/.test(x.status || '')) return '';   // งานจบแล้วไม่ต้องเตือนยังไม่มีหมุด
+  return has
     ? `<a href="https://www.google.com/maps?q=${encodeURIComponent(ll)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-sky-300 text-sky-700 hover:bg-sky-100" title="${escapeHtml(ll)}">📍 แผนที่</a>`
     : `<span class="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800" title="พิมพ์ชื่อเอง ยังไม่ผูกหมุด DTC/ค่ากลาง">⚠️ ยังไม่มีหมุด</span>`;
 }
@@ -1080,7 +1082,7 @@ function orderCardHtml(order, idx, isAdmin) {
         ${tlHtml}
         <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-emerald-800/80">
           <span><span class="font-medium text-emerald-900">วันที่:</span> ${escapeHtml(fmtDMY(order.date))} ${escapeHtml(order.time || '')}</span>
-          ${order.pk ? pkDetailHtml(order.pk) : `<span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")}</span>
+          ${order.pk ? pkDetailHtml(order.pk) : `<span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")} ${order.routeId ? '' : otPinHtml(order)}</span>
           <span><span class="font-medium text-emerald-900">จำนวนกระบะ:</span> ${escapeHtml(String(order.binCount || 1))} ใบ</span>`}
           ${order.billName ? `<span><span class="font-medium text-emerald-900">ชื่อในบิล:</span> ${escapeHtml(order.billName)}</span>` : ""}
         </div>
