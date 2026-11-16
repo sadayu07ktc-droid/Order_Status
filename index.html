@@ -138,7 +138,20 @@ const EXCEPTION_STATUSES = {
   "รอคนขับรับงาน": { label: "รอคนขับรับงาน", icon: "clock", tone: "amber" },
   "แจ้งเตือนแอดมิน": { label: "แจ้งเตือนแอดมิน", icon: "alert", tone: "warning" },
   "ถึงลาน": { label: "ถึงลานเท", icon: "warehouse", tone: "amber" },
+  // 16 พ.ย. ป้ายที่โชว์อย่างเดียว (ค่าใน DB ยัง "ไม่มีคนขับรับงาน") — งานขอรถจาก PK ไม่กระจายงาน · ขาในรูทรอจัดพร้อมงานหลัก
+  "__farmwait": { label: "รอไร่จัดรถ", icon: "truck", tone: "info", msg: "รอแอดมินไร่เลือกคนขับ — งานขอรถจาก PK ไม่กระจายงานให้คนขับ" },
+  "__routewait": { label: "รอจัดรถพร้อมงานหลัก", icon: "clock", tone: "info", msg: "อยู่ในรูทเดียวกับงานหลัก — กด \"หาคนขับ\" ที่งานหลัก จะได้คนขับคนเดียวกันทั้งรูท" },
 };
+// สถานะที่ใช้แสดง: งาน PKR/ขาในรูท ที่ยังไม่มีคนขับ → ป้ายเฉพาะ (ไม่ใช่ "ไม่มีคนขับรับงาน")
+const PRE_DRIVER_ST = ["รอยืนยัน", "ยืนยันแล้ว", "แจ้งเตือนแอดมิน", "ไม่มีคนขับรับงาน", "รอคนขับรับงาน"];
+// การ์ดสรุปสถานะ/ตัวกรอง: ขาในรูท นับรวมกับ "รอไร่จัดรถ"
+function dashKey(o) { const d = displayStatus(o); return d === '__routewait' ? '__farmwait' : d; }
+function displayStatus(o) {
+  if (!o || o.driverName || PRE_DRIVER_ST.indexOf(o.status) === -1) return o ? o.status : '';
+  if (o.routeId && o.routeSeq > 1) return '__routewait';
+  if (/^PKR-/.test(o.linkedJobId || '') && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน"].includes(o.status)) return '__farmwait';
+  return o.status;
+}
 
 const CUSTOMER_FLOW_STEPS = [
   { key: "รอยืนยัน", label: "รอยืนยัน", icon: "clock" },
@@ -193,6 +206,7 @@ function toneClasses(tone) {
     case "danger":  return "bg-[#FCEBEB] text-[#791F1F] border-[#F09595]";
     case "warning": return "bg-[#FAEEDA] text-[#633806] border-[#EF9F27]";
     case "amber":   return "bg-[#FAEEDA] text-[#854F0B] border-[#FAC775]";
+    case "info":    return "bg-sky-50 text-sky-800 border-sky-300";
     default:        return "bg-stone-100 text-stone-700 border-stone-300";
   }
 }
@@ -206,6 +220,7 @@ const DASHBOARD_STATUSES = [
   { key: "ออกจากลูกค้า", label: "ออกจากลูกค้า", tone: "amber" },
   { key: "เสร็จงาน", label: "จัดส่งสำเร็จ", tone: "done" },
   { key: "ไม่มีคนขับรับงาน", label: "ไม่มีคนขับรับงาน", tone: "warning" },
+  { key: "__farmwait", label: "🚜 รอไร่จัดรถ (PK)", tone: "amber" },   // 16 พ.ย. แยกงานขอรถจาก PK + ขาในรูท ออกจาก "ไม่มีคนขับรับงาน"
   { key: "แจ้งเตือนแอดมิน", label: "แจ้งเตือนแอดมิน", tone: "warning" },
   { key: "__cancelwait", label: "⏳ รออนุมัติยกเลิก", tone: "warning" },   // 11 พ.ย. นับทุกวัน (ไม่ตามวันที่เลือก) · ค้างเกิน 1 ชม. = แดง
   { key: "ยกเลิก", label: "ยกเลิก", tone: "danger" },
@@ -415,7 +430,7 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, ca
         <span>ออเดอร์นี้ถูกยกเลิกแล้ว${cancelReasonHtml(cancelReason)}</span>
       </div>`;
   } else if (exception) {
-    const msg = exception.label === "ถึงลานเท" ? "คนขับแวะลานเทก่อนไปจุดต่อไป" : cancelReq ? "คนขับขอยกเลิกงาน — รอแอดมินตัดสิน" : "งานนี้ต้องการความช่วยเหลือจาก Admin";
+    const msg = exception.msg ? exception.msg : exception.label === "ถึงลานเท" ? "คนขับแวะลานเทก่อนไปจุดต่อไป" : cancelReq ? "คนขับขอยกเลิกงาน — รอแอดมินตัดสิน" : "งานนี้ต้องการความช่วยเหลือจาก Admin";
     footerHtml = `
       <div class="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl border ${toneClasses(exception.tone)}">
         ${icon(exception.icon, 14)}${msg}
@@ -823,7 +838,7 @@ function editSectionHtml(order) {
   const lockNote = (t) => t ? `<p class="text-xs text-rose-600 flex items-center gap-1.5 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5">🔒 ${escapeHtml(t)}</p>` : '';
   if (!order.editable) {
     if (isCxWait(order)) return lockNote('มีคำขอยกเลิกจากคนขับรอแอดมินตัดสิน — กด อนุมัติยกเลิก / ปฏิเสธ ด้านบน');
-    if (canCancel(order)) return `<div class="flex gap-2 flex-wrap items-center">${cancelBtnHtml(oid)}<span class="text-[11px] text-emerald-800/60">${order.status === 'ไม่มีคนขับรับงาน' ? 'ยังไม่มีคนขับรับงาน · ยกเลิกได้' : 'แก้ไขไม่ได้แล้ว แต่ยังยกเลิกได้'}</span></div>`;
+    if (canCancel(order)) return `<div class="flex gap-2 flex-wrap items-center">${cancelBtnHtml(oid)}<span class="text-[11px] text-emerald-800/60">${order.status === 'ไม่มีคนขับรับงาน' ? (displayStatus(order) !== order.status ? 'ยังไม่ได้จัดคนขับ · ยกเลิกได้' : 'ยังไม่มีคนขับรับงาน · ยกเลิกได้') : 'แก้ไขไม่ได้แล้ว แต่ยังยกเลิกได้'}</span></div>`;
     return lockNote(order.cancelBlock || order.editReason);
   }
   if (!EDITING_IDS.has(order.orderId)) {
@@ -915,8 +930,38 @@ function pkDetailHtml(p) {
     kv("เข้าโหลด", p.load && p.load + " น."), kv("เวลาลงสินค้า", p.unload && p.unload + " น."), kv("จำนวน", p.qty), kv("รถ", p.veh)].join(" ");
 }
 
+// 🧭 16 พ.ย. รูทเที่ยวนี้ (งานขอรถไร่จาก PK) — แอดมินเพิ่มขาก่อนมีคนขับ แล้วกด "หาคนขับ" ที่ขาแรกทีเดียว (Edge order-actions มอบทั้งรูท)
+const legIcon = o => o.jobType === 'Packing' ? '📦' : String(o.jobType || '').indexOf('ปาล์ม') !== -1 ? '🌴' : '🧰';
+function canEditRoute(o) { return !o.driverName && /^PKR-/.test(o.linkedJobId || '') && !(o.routeSeq > 1) && PRE_DRIVER_ST.includes(o.status); }
+function routeBoxHtml(order) {
+  const editable = canEditRoute(order);
+  if (!order.routeId && !editable) return '';
+  const mem = order.routeId ? ALL_ORDERS.filter(x => x.routeId === order.routeId && x.status !== 'ยกเลิก').sort((a, b) => (a.routeSeq || 1) - (b.routeSeq || 1)) : [order];
+  const head = mem.find(x => !(x.routeSeq > 1)) || null;
+  const headEditable = head && canEditRoute(head);
+  const rows = mem.map((x, i) => {
+    const me = x.orderId === order.orderId;
+    const unlink = headEditable && x !== head && !x.driverName
+      ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); unlinkRouteLeg('${escapeHtml(head.orderId)}','${escapeHtml(x.orderId)}')" class="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50">เอาออก</a>` : '';
+    return `<div class="flex items-center gap-2 py-1 ${me ? 'font-semibold' : ''}">
+        <span class="shrink-0 w-5 text-center text-sky-700 tabular-nums">${i + 1}.</span>
+        <span class="min-w-0 flex-1 truncate">${legIcon(x)} ${escapeHtml(x.gardenName || '')}${x.pickup && x.pickup !== '—' && String(x.gardenName || '').indexOf(x.pickup) === -1 ? ' · ' + escapeHtml(x.pickup) : ''}
+          <span class="text-[11px] font-normal text-slate-500">${escapeHtml(x.orderId)}${x.driverName ? ' · ' + escapeHtml(x.driverName) : ''}</span></span>
+        ${unlink}
+      </div>`;
+  }).join('');
+  const addBtn = editable ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openAddJob('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-lg bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700">➕ เพิ่มรูท (แวะรับปาล์ม/งานอื่น)</a>` : '';
+  const hint = editable ? `<p class="text-[11px] text-sky-800/80 mt-1">เพิ่มขาก่อน แล้วกด "หาคนขับ" ที่งานนี้ → คนขับคนเดียวได้ทั้งรูท + การ์ดไลน์ใบเดียว (ตอนเพิ่มยังไม่ส่งไลน์)</p>`
+    : (head && head.orderId !== order.orderId ? `<p class="text-[11px] text-sky-800/80 mt-1">งานหลักของรูท: ${escapeHtml(head.orderId)} — จัดการรูท/หาคนขับที่งานหลัก</p>` : '');
+  return `<div class="text-sm bg-sky-50 border border-sky-200 rounded-xl px-3 py-2 text-slate-800">
+      <p class="text-xs font-bold text-sky-800 mb-1">🧭 รูทเที่ยวนี้${order.routeId ? ' · ' + escapeHtml(order.routeId) : ''} (${mem.length} งาน)</p>
+      ${rows}${addBtn}${hint}
+    </div>`;
+}
+
 function orderCardHtml(order, idx, isAdmin) {
   const expanded = EXPANDED_IDS.has(order.orderId);
+  const dispSt = isAdmin ? displayStatus(order) : order.status;   // 16 พ.ย. PKR/ขาในรูทที่ยังไม่มีคนขับ = ป้ายเฉพาะ (DB เดิม)
   const ownerStyle = OWNER_TYPE_STYLES[order.ownerType];
   const custStatus = toCustomerStatus(order.status);
 
@@ -932,7 +977,7 @@ function orderCardHtml(order, idx, isAdmin) {
     }
   }
 
-  const badgeHtml = isAdmin ? statusBadgeHtml(order.status, order) : customerStatusBadgeHtml(order.status);
+  const badgeHtml = isAdmin ? statusBadgeHtml(dispSt, order) : customerStatusBadgeHtml(order.status);
   // 📄 ชิปใบชั่งน้ำหนัก — โชว์เมื่อชั่งแล้ว (มีรูปใบชั่งอย่างน้อย 1 จุด)
   // ⚠️ ต้องเป็น <a> ไม่ใช่ <button> — การ์ดเป็น <button> อยู่แล้ว (ซ้อน button = HTML invalid → parser ดีดออก layout เพี้ยน)
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
@@ -942,7 +987,8 @@ function orderCardHtml(order, idx, isAdmin) {
     ? `<span class="inline-flex items-center shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700" title="คนขับแจ้งทะเบียนไม่ตรง — กางการ์ดดู">🚗 ทะเบียนไม่ตรง</span>` : '') : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
-  const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status);
+  const needDriver = isAdmin && ["ไม่มีคนขับรับงาน", "รอคนขับรับงาน", "แจ้งเตือนแอดมิน"].includes(order.status)
+    && !(order.routeId && order.routeSeq > 1);   // ขาในรูท = หาคนขับที่งานหลักทีเดียว
   const _assignCls = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors shrink-0";
   // Packing → เลือกคนขับในหน้า (panel · จบคลิกเดียว ไม่บังคับกรอกเวลา/ฟิลด์ปาล์ม) · งานอื่น → ฟอร์มเดิม
   // ใช้ <a> ไม่ใช่ <button> เพราะการ์ดเป็น <button> อยู่แล้ว (ซ้อน button = layout เพี้ยน)
@@ -956,9 +1002,9 @@ function orderCardHtml(order, idx, isAdmin) {
     if (isAdmin) {
       if (order.pkStops && order.pkStops.length) {   // 📦 งาน PK → ไทม์ไลน์ทุกจุดส่ง + เวลาถึง/ที่มา ต่อจุด
         const ps = pkFlowSteps(order);
-        tlHtml = timelineHtml(order.status, order.timestamps, ps, order.cancelReason, order.checkinSource, order.cancelRequest, pkDoneIdx(order, ps));
+        tlHtml = timelineHtml(dispSt, order.timestamps, ps, order.cancelReason, order.checkinSource, order.cancelRequest, pkDoneIdx(order, ps));
       } else
-      tlHtml = timelineHtml(order.status, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource, order.cancelRequest);
+      tlHtml = timelineHtml(dispSt, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource, order.cancelRequest);
     } else {
       tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
     }
@@ -1032,6 +1078,7 @@ function orderCardHtml(order, idx, isAdmin) {
         ${isAdmin ? pkSlipBoxHtml(order) : ''}
         ${isAdmin ? plateReportHtml(order) : ''}
         ${editSectionHtml(order)}
+        ${isAdmin ? routeBoxHtml(order) : ''}
         ${driverHtml}
         ${fleetLineHtml(order)}
         ${rampHtml}
@@ -1320,7 +1367,7 @@ function render() {
   const cxAll = isAdmin ? baseOrders.filter(isCxWait) : [];
   let orders = (isAdmin && FILTER_STATUS === '__cancelwait') ? cxAll.slice() : baseOrders.filter(o => matchesDateFilter(o.date));
   if (isAdmin && FILTER_STATUS !== "ทั้งหมด" && FILTER_STATUS !== '__cancelwait') {
-    orders = orders.filter(o => o.status === FILTER_STATUS);
+    orders = orders.filter(o => dashKey(o) === FILTER_STATUS);
   }
   if (isAdmin && FILTER_OWNER_TYPE) {
     orders = orders.filter(o => o.ownerType === FILTER_OWNER_TYPE);
@@ -1400,7 +1447,7 @@ function render() {
     html += `
       <div class="space-y-2">
         <p class="text-sm font-semibold text-emerald-900 px-1">สรุปสถานะ${_filterLabel ? ` · <span class="${_labelCls}">${_filterLabel}</span>` : ''}</p>
-        ${dashboardHtml(_statusSummaryOrders, DASHBOARD_STATUSES, o => o.status, cxAll)}
+        ${dashboardHtml(_statusSummaryOrders, DASHBOARD_STATUSES, dashKey, cxAll)}
       </div>`;
 
     html += `
@@ -1753,9 +1800,12 @@ let _addJobCtx = null, _pkWaiting = null, _rampList = null, _addJobMode = 'packi
 async function openAddJob(orderId){
   const o = ALL_ORDERS.find(x => String(x.orderId) === String(orderId));
   if(!o){ toast('ไม่พบออเดอร์ ' + orderId); return; }
-  _addJobCtx = { orderId: o.orderId, driver: o.driverName || '' };
-  _addJobMode = 'packing'; _pkWaiting = null; _rampList = null;
-  document.getElementById('addjob-sub').textContent = `${o.orderId} · คนขับ ${o.driverName || '—'} · เลือกงานที่จะเพิ่มเข้าทริป`;
+  const noDriver = !o.driverName;   // 16 พ.ย. รูท PKR ก่อนมีคนขับ (ปุ่ม ➕ เพิ่มรูท)
+  _addJobCtx = { orderId: o.orderId, driver: o.driverName || '', noDriver };
+  _addJobMode = noDriver ? 'ramp' : 'packing'; _pkWaiting = null; _rampList = null;
+  document.getElementById('addjob-sub').textContent = noDriver
+    ? `${o.orderId} · ยังไม่มีคนขับ · เพิ่มขาในรูท แล้วค่อยกด "หาคนขับ" ที่งานนี้`
+    : `${o.orderId} · คนขับ ${o.driverName || '—'} · เลือกงานที่จะเพิ่มเข้าทริป`;
   _renderAddJobTabs();
   document.getElementById('addjob-modal').classList.remove('hidden');
   loadAddJobList();
@@ -1763,7 +1813,29 @@ async function openAddJob(orderId){
 function _renderAddJobTabs(){
   const t = document.getElementById('addjob-tabs');
   const b = (m,l)=>`<button onclick="switchAddJobMode('${m}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${_addJobMode===m?'bg-emerald-600 border-emerald-600 text-white':'bg-white border-amber-200 text-emerald-800 hover:bg-amber-50'}">${l}</button>`;
-  t.innerHTML = b('packing','📦 งาน Packing') + b('ramp','🌴 งานขากลับ (แวะลาน)') + b('other','🧰 งานอื่นๆ');
+  t.innerHTML = (_addJobCtx && _addJobCtx.noDriver ? b('ramp','🌴 แวะลานรับปาล์ม') + b('palm','🌴 ปาล์มสวนรอคนขับ') : b('packing','📦 งาน Packing') + b('ramp','🌴 งานขากลับ (แวะลาน)'))
+    + b('other','🧰 งานอื่นๆ') + (_addJobCtx && _addJobCtx.noDriver ? b('packing','📦 Packing ค้าง') : '');
+}
+// 🌴 ออเดอร์ปาล์มสวนที่รอคนขับ (ยังไม่อยู่ในรูท · ลานตอบแล้ว) — จาก ALL_ORDERS ที่โหลดอยู่ ไม่ต้องยิงเพิ่ม
+let _palmList = [];
+function _palmCandidates(){
+  const base = _addJobCtx ? _addJobCtx.orderId : '';
+  return ALL_ORDERS.filter(x => x.orderId !== base && x.jobType !== 'Packing' && !x.driverName && !x.routeId
+      && PRE_DRIVER_ST.includes(x.status) && !/^PK[RJ]-/.test(x.linkedJobId || '') && x.rampInfo !== 'ยังไม่ตอบ')
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.time).localeCompare(String(b.time)));
+}
+async function unlinkRouteLeg(baseId, legId){
+  const leg = ALL_ORDERS.find(x => x.orderId === legId) || {};
+  const created = /^ORD-(RL|OT)-/.test(legId);
+  if(!(await confirmModal({ icon:'🧭', title:'เอาออกจากรูท?', msg:`${legId} · ${leg.gardenName||''}\n${created ? 'ขานี้สร้างจากรูท → จะถูกยกเลิก' : 'จะกลับเป็นงานเดี่ยว รอจัดคนขับตามปกติ'}`, okText:'เอาออก' }))) return;
+  try{
+    const res = await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'addJobToTrip', userId: window._userId, baseOrderId: baseId, source:'unlink', legOrderId: legId})});
+    const txt = await res.text(); let d=null; try{ d=JSON.parse(txt); }catch(_){}
+    if(d && d.success){ toast(`✅ ${legId} ${d.unlinked||'เอาออกแล้ว'}`); loadOrders(true); return; }
+    if(d){ toast('ไม่สำเร็จ: '+(d.error||'unknown')); return; }
+    toast('ส่งคำขอแล้ว · กำลังรีเฟรช'); setTimeout(()=>loadOrders(true), 1500);   // GAS ตอบ HTML = อาจสำเร็จแล้ว (ห้ามยิงซ้ำ)
+  }catch(e){ toast('ผิดพลาด: '+(e.message||e)); }
 }
 // 🧰 งานอื่นๆ (11 พ.ย.) = ชุดเดียวกับ Order_form OT_TYPES / pk_other_job_types / GAS OT_JOB_TYPES_ · แก้ต้องแก้ทุกที่
 const OT_TYPES = [['OT01','ส่งคน','🧑‍🤝‍🧑'],['OT02','ขนส่งเหล็ก/วัสดุ','🏗️'],['OT03','ส่ง-รับของ/อะไหล่','🔩'],['OT04','งานกิจกรรม/พิธี','🎪'],
@@ -1774,6 +1846,8 @@ function switchAddJobMode(m){ _addJobMode = m; _renderAddJobTabs(); loadAddJobLi
 async function loadAddJobList(){
   const list = document.getElementById('addjob-list');
   if(_addJobMode==='other'){ _otPick=''; _otKeep={detail:'',note:''}; list.innerHTML=''; _renderAddJobList(); return; }   // ไม่ต้องโหลดอะไร
+  if(_addJobMode==='palm'){ _palmList=_palmCandidates(); _renderAddJobList(); return; }
+  const mode0 = _addJobMode;
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังโหลด...</p>';
   try{
     if(_addJobMode==='packing'){
@@ -1781,7 +1855,8 @@ async function loadAddJobList(){
     }else{
       if(!_rampList){ const r = await (window.ssbFetch || fetch)(`${GAS_URL}?action=getRampList&userId=${encodeURIComponent(window._userId)}`).then(x=>x.json()); if(!r||!r.ok) throw new Error((r&&r.error)||'โหลดไม่สำเร็จ'); _rampList = r.ramps||[]; }
     }
-  }catch(e){ list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`; return; }
+  }catch(e){ if(_addJobMode!==mode0) return; list.innerHTML = `<p class="text-sm text-red-600 py-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message||'')}</p>`; return; }
+  if(_addJobMode!==mode0) return;   // สลับแท็บระหว่างโหลด → ไม่ทับรายการแท็บใหม่
   _renderAddJobList();
 }
 function _renderAddJobList(){
@@ -1795,6 +1870,15 @@ function _renderAddJobList(){
       <input id="ot-detail" maxlength="200" value="${escapeHtml(dv)}" placeholder="เช่น ส่งคน 5 คนไปไร่บ่อทอง · เข้าศูนย์ฮีโน่ชลบุรี" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
       <input id="ot-note" maxlength="300" value="${escapeHtml(nv)}" placeholder="หมายเหตุถึงคนขับ (ถ้ามี)" class="w-full px-3 py-2 rounded-xl border border-amber-200 text-sm focus:outline-none focus:border-emerald-400">
       <button onclick="doAddJob('other',0)" class="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 ${_otPick?'':'opacity-50'}">➕ เพิ่มงานอื่นๆ เข้าทริป</button>`;
+    return;
+  }
+  if(_addJobMode==='palm'){
+    if(!_palmList.length){ list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">ไม่มีออเดอร์ปาล์มที่รอคนขับ</p>'; return; }
+    list.innerHTML = _palmList.map((x,i)=>`
+      <button onclick="doAddJob('palm',${i})" class="w-full text-left px-3 py-2.5 rounded-xl border border-amber-200 bg-white hover:bg-amber-50 transition-colors">
+        <span class="block text-sm font-semibold text-emerald-900 truncate">🌴 ${escapeHtml(x.gardenName||'-')}${x.pickup && x.pickup!=='—' && String(x.gardenName||'').indexOf(x.pickup)===-1 ? ' · '+escapeHtml(x.pickup) : ''}</span>
+        <span class="block text-xs text-emerald-700/70 truncate">${escapeHtml(x.orderId)} · ${escapeHtml(fmtDMY(x.date))} ${escapeHtml(x.time||'')} · ${escapeHtml(String(x.binCount||1))} กระบะ · ${escapeHtml(x.status)}</span>
+      </button>`).join('');
     return;
   }
   if(_addJobMode==='packing'){
@@ -1825,15 +1909,19 @@ async function doAddJob(mode, idx){
     if(!detail){ toast('ใส่รายละเอียด/ปลายทางก่อน'); document.getElementById('ot-detail').focus(); return; }
     _otKeep={detail,note}; payload={source:'other',otCode:t[0],detail,note}; label=`${t[2]} ${t[1]} · ${detail}${note?' · 📝 '+note:''}`;
   }
+  else if(mode==='palm'){ const x=_palmList[idx]; if(!x) return; payload={source:'palm',palmOrderId:x.orderId}; label=`🌴 ${x.gardenName||''} · ${x.orderId}`; }
   else { const r=(_rampList||[])[idx]; if(!r) return; payload={source:'ramp',rampCode:r.code,rampName:r.name}; label=`รับปาล์มขากลับ · ${r.name||r.code}`; }
-  if(!(await confirmModal({ icon:'➕', title:'เพิ่มงานเข้าทริป?', msg:`งาน: ${label}\nคนขับ: ${_addJobCtx.driver} — จะได้รับงานนี้เพิ่มทันที`, okText:'เพิ่มงาน' }))) return;
+  const nd = _addJobCtx.noDriver;
+  if(!(await confirmModal(nd
+      ? { icon:'🧭', title:'เพิ่มเข้ารูท?', msg:`งาน: ${label}\nยังไม่มีคนขับ — ยังไม่ส่งไลน์ · กด "หาคนขับ" ที่ ${_addJobCtx.orderId} แล้วทั้งรูทไปที่คนขับคนเดียว`, okText:'เพิ่มเข้ารูท' }
+      : { icon:'➕', title:'เพิ่มงานเข้าทริป?', msg:`งาน: ${label}\nคนขับ: ${_addJobCtx.driver} — จะได้รับงานนี้เพิ่มทันที`, okText:'เพิ่มงาน' }))) return;
   const list = document.getElementById('addjob-list');
   list.innerHTML = '<p class="text-sm text-emerald-700 py-6 text-center">กำลังเพิ่มงาน...</p>';
   try{
     const res = await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(Object.assign({action:'addJobToTrip', userId: window._userId, baseOrderId: _addJobCtx.orderId}, payload))});
     const txt = await res.text(); let d=null; try{ d=JSON.parse(txt); }catch(_){}
-    if(d && d.success){ closeAddJob(); toast(`✅ เพิ่มงาน ${d.orderId} เข้าทริปแล้ว · แจ้งคนขับ ${d.driverName||''} เรียบร้อย`); loadOrders(true); return; }
+    if(d && d.success){ closeAddJob(); toast(d.noDriver ? `✅ เพิ่ม ${d.orderId} เข้ารูทแล้ว (ยังไม่แจ้งใคร)` : `✅ เพิ่มงาน ${d.orderId} เข้าทริปแล้ว · แจ้งคนขับ ${d.driverName||''} เรียบร้อย`); loadOrders(true); return; }
     if(d && !d.success){ toast('ไม่สำเร็จ: '+(d.error||'unknown')); _renderAddJobList(); return; }
     closeAddJob(); toast('✅ ส่งคำขอเพิ่มงานแล้ว · กำลังรีเฟรช'); setTimeout(()=>loadOrders(true), 1500);
   }catch(e){ toast('ผิดพลาด: '+(e.message||e)); _renderAddJobList(); }
