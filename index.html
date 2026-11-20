@@ -360,6 +360,24 @@ function checkinChip(source, distM) {
   const ico = t === 'GPS' ? '🛰️' : t === 'กดเอง' ? '👆' : '⚠️';
   return `<span class="inline-block mt-0.5 text-[9.5px] font-semibold px-1.5 py-px rounded-full ${cls}">${ico} ${t}${t === 'GPS' && distM != null ? ' ' + distM + 'ม.' : ''}</span>`;
 }
+// 🚪 20 พ.ย. เวลาออกจากจุด (GPS · stop_departures) + อยู่กี่นาที + เทียบเวลานัด — ชุดเดียวกับ Driver_form / dev-drivers
+//   leftAt ว่าง+inside = ยังอยู่ในหมุด · exits>1 = ออกแล้ววนกลับ (เวลาออก = ครั้งล่าสุด) · leftFinal = ถึงจุดถัดไป/โรงงานแล้ว (ล็อก)
+function depMs(t) { const m = String(t || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]) : NaN; }
+function depDur(min) { min = Math.max(0, Math.round(min)); const h = Math.floor(min / 60), m = min % 60; return h ? h + 'ชม.' + (m ? ' ' + m + 'น.' : '') : m + 'น.'; }
+function apptDiffHtml(arrAt, appt) {   // appt "HH:MM" เทียบเวลาถึง (ข้ามเที่ยงคืนปรับ ±1 วัน)
+  const a = depMs(arrAt), m = String(appt || '').match(/^(\d{1,2}):(\d{2})$/); if (isNaN(a) || !m) return '';
+  const d0 = new Date(a); let diff = (a - Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate(), +m[1], +m[2])) / 60000;
+  if (diff > 720) diff -= 1440; else if (diff < -720) diff += 1440;
+  const t = Math.abs(diff) <= 5 ? ['ตรงนัด ' + appt, 'text-emerald-700'] : diff < 0 ? ['ก่อนนัด ' + depDur(-diff), 'text-emerald-700'] : ['สายกว่านัด ' + depDur(diff), 'text-red-600'];
+  return `<span class="block text-[9.5px] font-semibold ${t[1]}">${t[0]}</span>`;
+}
+function depHtml(arrAt, d) {
+  if (!d || (!d.leftAt && !d.inside)) return '';
+  const exits = d.exits > 1 ? ` · ออก ${d.exits} ครั้ง` : '';
+  if (!d.leftAt) return `<span class="block text-[9.5px] text-sky-700">📍 ยังอยู่ในหมุด${d.exits ? ' · เคยออก ' + d.exits + ' ครั้ง' : ''}</span>`;
+  const stay = !isNaN(depMs(arrAt)) && !isNaN(depMs(d.leftAt)) ? ' · อยู่ ' + depDur((depMs(d.leftAt) - depMs(arrAt)) / 60000) : '';
+  return `<span class="block text-[10px] tabular-nums ${d.leftFinal ? 'text-slate-700' : 'text-sky-700'}" title="${d.leftFinal ? 'เวลาออกครั้งสุดท้ายก่อนถึงจุดถัดไป/โรงงาน (GPS)' : 'ออกล่าสุด — ถ้าวนกลับเข้าหมุดจะบันทึกใหม่ จนกว่าจะถึงจุดถัดไป'}">ออก${d.leftFinal ? '' : 'ล่าสุด'} ${escapeHtml(d.leftAt.slice(-5))}${stay}${exits}</span>`;
+}
 // 📦 งาน PK: ไทม์ไลน์ทุกจุดส่ง (order.pkStops จาก Edge order-tracker) — ออกจาก SSB → จุด 1..N (เวลาถึง+ที่มา / เวลาเสร็จ) → กลับถึง SSB
 function pkFlowSteps(order) {
   const ps = order.pkStops || [];
@@ -405,8 +423,10 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, ca
       : ((step.key === 'ถึงลานวางกระบะ' || step.key === 'ถึงลานขากลับ') && ts) ? step.label + ' (กดเอง)' : step.label;
     const a = step.arr, w = a ? 'w-24' : 'w-20';
     const arrHtml = !a ? '' : a.arrAt
-      ? `<span class="text-[10px] text-center ${w} leading-tight tabular-nums text-emerald-800">ถึง ${escapeHtml(a.arrAt.slice(-5))}<br>${checkinChip(a.src, a.distM)}</span>`
+      ? `<span class="text-[10px] text-center ${w} leading-tight tabular-nums text-emerald-800">ถึง ${escapeHtml(a.arrAt.slice(-5))}<br>${checkinChip(a.src, a.distM)}${apptDiffHtml(a.arrAt, a.appt)}${depHtml(a.arrAt, a)}</span>`
       : `<span class="text-[10px] text-center ${w} leading-tight text-slate-400">${a.doneAt ? 'ไม่มีเวลาถึง GPS' : ''}</span>`;
+    // 🚪 ไร่/Bulk: เวลาออกจากสวน/ลูกค้า (GPS) ใต้ขั้น "ถึงลูกค้า" + เทียบเวลานัด
+    const depFarm = (!a && step.key === 'ถึงลูกค้า' && ts) ? `<span class="text-[10px] text-center w-20 leading-tight">${apptDiffHtml(ts, step.appt)}${depHtml(ts, step.dep)}</span>` : '';
     const circleCls = done ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-amber-200 text-amber-400";
     const labelCls  = done ? "text-emerald-800" : "text-amber-700/60";
     const connectorCls = (idx < effectiveIdx && currentIdx !== -1) ? "bg-emerald-500" : "bg-amber-200";
@@ -417,6 +437,7 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, ca
           <span class="text-[11px] font-medium text-center ${w} leading-tight ${labelCls}" ${a ? 'style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden"' : ''}>${label}</span>
           ${arrHtml}
           <span class="text-[10px] text-amber-600/70 text-center ${w} leading-tight tabular-nums">${ts || "—"}</span>
+          ${depFarm}
         </div>
         ${!isLast ? `<div class="h-0.5 w-10 sm:w-16 mx-1 mt-[18px] rounded transition-colors ${connectorCls}"></div>` : ''}
       </div>`;
@@ -1015,7 +1036,8 @@ function orderCardHtml(order, idx, isAdmin) {
         const ps = pkFlowSteps(order);
         tlHtml = timelineHtml(dispSt, order.timestamps, ps, order.cancelReason, order.checkinSource, order.cancelRequest, pkDoneIdx(order, ps));
       } else
-      tlHtml = timelineHtml(dispSt, order.timestamps, flowStepsFor(order), order.cancelReason, order.checkinSource, order.cancelRequest);
+      tlHtml = timelineHtml(dispSt, order.timestamps, flowStepsFor(order).map(s => s.key === 'ถึงลูกค้า' ? { ...s, dep: order.depart, appt: order.time } : s),
+        order.cancelReason, order.checkinSource, order.cancelRequest);
     } else {
       tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
     }
