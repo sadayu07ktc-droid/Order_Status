@@ -378,12 +378,22 @@ function depHtml(arrAt, d) {
   const stay = !isNaN(depMs(arrAt)) && !isNaN(depMs(d.leftAt)) ? ' · อยู่ ' + depDur((depMs(d.leftAt) - depMs(arrAt)) / 60000) : '';
   return `<span class="block text-[10px] tabular-nums ${d.leftFinal ? 'text-slate-700' : 'text-sky-700'}" title="${d.leftFinal ? 'เวลาออกครั้งสุดท้ายก่อนถึงจุดถัดไป/โรงงาน (GPS)' : 'ออกล่าสุด — ถ้าวนกลับเข้าหมุดจะบันทึกใหม่ จนกว่าจะถึงจุดถัดไป'}">ออก${d.leftFinal ? '' : 'ล่าสุด'} ${escapeHtml(d.leftAt.slice(-5))}${stay}${exits}</span>`;
 }
+// 🚀 23 พ.ย. เวลาออกจาก SSB จริง (order.ssbOut · GPS dtc_s2s) — ชุดเดียวกับ Driver_form / dev-drivers (memory ssb-checkin-status-points)
+//   เวลาหลัก = GPS · บรรทัดเล็ก = เวลาคนขับกดเริ่มงาน (ห่าง ≥10 นาที บอกส่วนต่าง · ≥30 นาที สีส้ม)
+function ssbOutHtml(so, pressed) {
+  if (!so || !so.at) return '';
+  const g = depMs(so.at), p = depMs(pressed), d = isNaN(g) || isNaN(p) ? NaN : (p - g) / 60000;
+  const diff = isNaN(d) || Math.abs(d) < 10 ? '' : d > 0 ? ' · หลัง GPS ' + depDur(d) : ' · ก่อน GPS ' + depDur(-d);
+  return `<span class="block text-[10px] text-center w-20 leading-tight"><span class="inline-block text-[9.5px] font-semibold px-1.5 py-px rounded-full bg-emerald-100 text-emerald-800" title="รถออกจากหมุด ${escapeHtml(so.station || 'SSB')} (GPS · DTC)">🛰️ GPS</span>`
+    + (pressed ? `<span class="block text-[9.5px] tabular-nums ${!isNaN(d) && Math.abs(d) >= 30 ? 'text-amber-700' : 'text-slate-500'}">กดเริ่มงาน ${escapeHtml(String(pressed).slice(-5))}${diff}</span>` : '') + `</span>`;
+}
 // 📦 งาน PK: ไทม์ไลน์ทุกจุดส่ง (order.pkStops จาก Edge order-tracker) — ออกจาก SSB → จุด 1..N (เวลาถึง+ที่มา / เวลาเสร็จ) → กลับถึง SSB
 function pkFlowSteps(order) {
   const ps = order.pkStops || [];
   const base = FLOW_STEPS.filter(s => ['รอยืนยัน', 'ยืนยันแล้ว', 'รับงานแล้ว'].includes(s.key));
   const out = base.map(s => ({ ...s }));
-  out.push({ key: 'เริ่มงานแล้ว', label: 'ออกจาก SSB', icon: 'truck' });
+  const so = order.ssbOut, pressed = (order.timestamps || {})['เริ่มงานแล้ว'];   // 🚀 GPS จริง → เวลาหลัก · ไม่มี = เวลากดเริ่มงาน (เดิม)
+  out.push({ key: 'เริ่มงานแล้ว', label: 'ออกจาก SSB', icon: 'truck', ...(so && so.at ? { ts: so.at, sub: ssbOutHtml(so, pressed) } : {}) });
   ps.forEach(p => out.push({ key: 'pk' + p.seq, label: 'จุด ' + p.seq + ' · ' + escapeHtml(p.name || '—'), icon: 'pin',
     ts: p.doneAt ? 'เสร็จ ' + p.doneAt : '', arr: p }));
   out.push({ key: 'เสร็จงาน', label: 'กลับถึง SSB', icon: 'home' });
@@ -437,7 +447,7 @@ function timelineHtml(status, timestamps, steps, cancelReason, checkinSource, ca
           <span class="text-[11px] font-medium text-center ${w} leading-tight ${labelCls}" ${a ? 'style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden"' : ''}>${label}</span>
           ${arrHtml}
           <span class="text-[10px] text-amber-600/70 text-center ${w} leading-tight tabular-nums">${ts || "—"}</span>
-          ${depFarm}
+          ${step.sub || ''}${depFarm}
         </div>
         ${!isLast ? `<div class="h-0.5 w-10 sm:w-16 mx-1 mt-[18px] rounded transition-colors ${connectorCls}"></div>` : ''}
       </div>`;
@@ -1036,10 +1046,12 @@ function orderCardHtml(order, idx, isAdmin) {
         const ps = pkFlowSteps(order);
         tlHtml = timelineHtml(dispSt, order.timestamps, ps, order.cancelReason, order.checkinSource, order.cancelRequest, pkDoneIdx(order, ps));
       } else
-      tlHtml = timelineHtml(dispSt, order.timestamps, flowStepsFor(order).map(s => s.key === 'ถึงลูกค้า' ? { ...s, dep: order.depart, appt: order.time } : s),
+      tlHtml = timelineHtml(dispSt, order.timestamps, flowStepsFor(order).map(s => s.key === 'ถึงลูกค้า' ? { ...s, dep: order.depart, appt: order.time }
+          : s.key === 'เริ่มงานแล้ว' && order.ssbOut && order.ssbOut.at ? { ...s, ts: order.ssbOut.at, sub: ssbOutHtml(order.ssbOut, (order.timestamps || {})['เริ่มงานแล้ว']) } : s),   // 🚀 PK ไม่มีรายการจุด
         order.cancelReason, order.checkinSource, order.cancelRequest);
     } else {
-      tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
+      // 🚀 PK: "ออกเดินทาง" = เวลาออกจาก SSB จริง (GPS) ถ้ามี
+      tlHtml = timelineHtml(custStatus, toCustomerTimestamps(order.ssbOut && order.ssbOut.at ? { ...order.timestamps, 'เริ่มงานแล้ว': order.ssbOut.at } : order.timestamps), CUSTOMER_FLOW_STEPS, order.cancelReason);
     }
 
     const showDriver = order.driverName && custStatus !== "ยกเลิก" &&
