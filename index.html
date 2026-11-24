@@ -63,8 +63,9 @@
 // 👁️ 24 พ.ย. โหมด DEV ดูแทนคนสวน/ทีมตัด (เมนู Developer · dev-drivers.html) — ?asUser=<uid>
 //    ดูอย่างเดียว: บล็อกทุกคำขอที่ไม่ใช่ GET (แก้/ยกเลิก/เปลี่ยนคนขับ/อ่านใบชั่ง) · ไม่ใช้ LIFF · ไม่เขียน ssb_uid · ต้องเป็น DEV (บัตร ssb_session_v1 + Edge dev-drivers ?action=me)
 //    ผู้ใช้ปกติ (ไม่มี ?asUser) ไม่โดนอะไรเลย · แบบเดียวกับ Driver_form ?asDriver=
-const DEVV = (function(){ try{ const u = new URLSearchParams(location.search).get('asUser');
-  return (u && /^U[0-9a-f]{32}$/.test(u)) ? { uid: u } : null; }catch(e){ return null; } })();
+//    🔒 24 พ.ย. ?uid= (ทางลัดเทสเดิม ข้ามล็อกอิน ไม่เช็คสิทธิ์ ไม่บล็อกการเขียน) → ใช้ทางเดียวกับ ?asUser= แล้ว (ต้องเป็น DEV + ดูอย่างเดียว)
+const DEVV = (function(){ try{ const q = new URLSearchParams(location.search); const u = q.get('asUser') || q.get('uid');
+  return (u && /^U[0-9a-f]{32}$/i.test(u)) ? { uid: u } : null; }catch(e){ return null; } })();
 if (DEVV) {
   const _f = window.fetch.bind(window);
   window.fetch = function(url, opt){
@@ -402,6 +403,32 @@ function ssbOutHtml(so, pressed) {
   const diff = isNaN(d) || Math.abs(d) < 10 ? '' : d > 0 ? ' · หลัง GPS ' + depDur(d) : ' · ก่อน GPS ' + depDur(-d);
   return `<span class="block text-[10px] text-center w-20 leading-tight"><span class="inline-block text-[9.5px] font-semibold px-1.5 py-px rounded-full bg-emerald-100 text-emerald-800" title="รถออกจากหมุด ${escapeHtml(so.station || 'SSB')} (GPS · DTC)">🛰️ GPS</span>`
     + (pressed ? `<span class="block text-[9.5px] tabular-nums ${!isNaN(d) && Math.abs(d) >= 30 ? 'text-amber-700' : 'text-slate-500'}">กดเริ่มงาน ${escapeHtml(String(pressed).slice(-5))}${diff}</span>` : '') + `</span>`;
+}
+// 🟠 24 พ.ย. เริ่มงานในระบบล่าช้า + เลขไมล์ DTC + ดุมล้อเทียบ DTC (order.odo · แอดมินเท่านั้น · Edge ส่งเฉพาะงานช้า/ดุมต่างเกิน)
+//   เกณฑ์อยู่ใน view v_trip_odo (ช้า ≥30 นาที · ดุมล้อต่าง DTC >10%) · ชุดเดียวกับ dev-drivers / wage.html / Driver_form (ป้ายอย่างเดียว)
+const odoKm = n => n == null ? '–' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
+function odoChipHtml(o) {
+  const d = o.odo; if (!d) return '';
+  return (d.late ? `<span class="inline-flex items-center shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800" title="คนขับกดเริ่มงานช้ากว่ารถออกจาก SSB จริง (GPS)">🟠 เริ่มงานล่าช้า ${depDur(d.lateMin)}</span>` : '')
+    + (d.hubWarn ? `<span class="inline-flex items-center shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200" title="ระยะดุมล้อต่างจากระยะ DTC เกิน 10% และเกิน 10 กม.">⚙️ ดุม ${d.diffPct > 0 ? '+' : ''}${d.diffPct}%</span>` : '');
+}
+function odoBoxHtml(o) {
+  const d = o.odo; if (!d) return '';
+  const row = (k, val) => `<div class="flex justify-between gap-3"><span class="text-slate-500">${k}</span><span class="tabular-nums text-slate-800 text-right">${val}</span></div>`;
+  let h = '';
+  if (d.late) {
+    h += `<div class="font-semibold text-orange-800">🟠 เริ่มงานในระบบล่าช้า ${escapeHtml(depDur(d.lateMin))}</div>`
+      + row('รถออกจาก SSB (GPS)', escapeHtml(d.outAt)) + row('คนขับกดเริ่มงาน', escapeHtml(d.pressAt));
+    if (d.odoOut != null) h += row('เลขไมล์ DTC ออกจริง', odoKm(d.odoOut)) + row('เลขไมล์ DTC ตอนกด', odoKm(d.odoPress))
+      + (d.gapKm != null ? row('ช่วงที่หายไป', '~' + odoKm(d.gapKm) + ' กม.') : '');
+    else h += `<div class="text-[11px] text-slate-500">เลขไมล์ DTC ณ ออกจริง: รอดึง (รอบ 03:25 / 12:55)</div>`;
+  }
+  if (d.hubKm != null || d.dtcKm != null) {
+    h += `<div class="font-semibold ${d.hubWarn ? 'text-orange-800' : 'text-slate-700'} ${d.late ? 'pt-1.5 mt-1.5 border-t border-orange-200' : ''}">${d.hubWarn ? '⚙️ ' : ''}ทั้งเที่ยว: ดุมล้อเทียบ DTC</div>`
+      + row('ดุมล้อ', odoKm(d.hubKm) + ' กม.') + row('DTC' + (d.dtcSrc === 'gps' ? ' (ออกจริง→กลับ SSB)' : ''), odoKm(d.dtcKm) + ' กม.')
+      + (d.diffPct != null ? row('ต่าง', `<b class="${d.hubWarn ? 'text-orange-700' : ''}">${d.diffPct > 0 ? '+' : ''}${d.diffPct}%</b>`) : '');
+  }
+  return h ? `<div class="rounded-lg border border-orange-200 bg-orange-50/70 px-3 py-2 text-xs space-y-0.5">${h}</div>` : '';
 }
 // 📦 งาน PK: ไทม์ไลน์ทุกจุดส่ง (order.pkStops จาก Edge order-tracker) — ออกจาก SSB → จุด 1..N (เวลาถึง+ที่มา / เวลาเสร็จ) → กลับถึง SSB
 function pkFlowSteps(order) {
@@ -1041,7 +1068,7 @@ function orderCardHtml(order, idx, isAdmin) {
   const slipChipHtml = (order.weighSlips && order.weighSlips.length)
     ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); openWeighSlips('${escapeHtml(order.orderId)}')" class="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors cursor-pointer no-underline" title="ดูใบชั่งน้ำหนัก">📄 ใบชั่ง${order.weighSlips.length > 1 ? ' (' + order.weighSlips.length + ')' : ''}</a>`
     : '';
-  const pkSlipHtml = isAdmin ? pkSlipChipHtml(order) + (PLATE_REPORTS[order.orderId]
+  const pkSlipHtml = isAdmin ? odoChipHtml(order) + pkSlipChipHtml(order) + (PLATE_REPORTS[order.orderId]
     ? `<span class="inline-flex items-center shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700" title="คนขับแจ้งทะเบียนไม่ตรง — กางการ์ดดู">🚗 ทะเบียนไม่ตรง</span>` : '') : '';
 
   // ── ปุ่ม "หาคนขับ" — ขึ้นเฉพาะ Admin และออเดอร์ที่ยังไม่มีคนขับ/ต้องการความช่วยเหลือ ──
@@ -1130,6 +1157,7 @@ function orderCardHtml(order, idx, isAdmin) {
     detailHtml = `
       <div class="px-4 pb-4 border-t border-amber-100 pt-3 space-y-3 bg-amber-50/40">
         ${tlHtml}
+        ${isAdmin ? odoBoxHtml(order) : ''}
         <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm text-emerald-800/80">
           <span><span class="font-medium text-emerald-900">วันที่:</span> ${escapeHtml(fmtDMY(order.date))} ${escapeHtml(order.time || '')}</span>
           ${order.pk ? pkDetailHtml(order.pk) : `<span><span class="font-medium text-emerald-900">จุดรับ:</span> ${escapeHtml(order.pickup || "—")} ${order.routeId ? '' : otPinHtml(order)}</span>
@@ -1569,15 +1597,6 @@ async function init() {
     window._userId = DEVV.uid;
     await loadOrders(false, DEVV.uid);
     return;
-  }
-  // 🔧 dev/test override: ?uid=Uxxxx → เข้าดูในฐานะ uid นั้น (ข้าม LINE login) สำหรับแอดมินเทส
-  //    ephemeral: ไม่เขียน cache + ล้าง cache เก่าทิ้ง → ครั้งต่อไป (ไม่มี ?uid) ล็อกอินจริงใหม่ ไม่ติดค้าง
-  const qUid = new URLSearchParams(location.search).get('uid');
-  if (qUid && /^U[0-9a-f]{32}$/i.test(qUid)) {
-    try { localStorage.removeItem('ssb_uid'); } catch(e) {}
-    window._userId = qUid;
-    await loadOrders(false, qUid);
-    return;   // ไม่เรียก liff.login() → เปิดในเบราว์เซอร์ปกติได้เลย
   }
   // ⚡ จำ uid เดิม → ยิง getOrderTracker ทันที (ขนานกับ LIFF init) ไม่ต้องรอ LINE เสร็จก่อน
   const cachedUid = _lsGet('ssb_uid');
