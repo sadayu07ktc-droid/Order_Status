@@ -60,6 +60,22 @@
 </div>
 
 <script>
+// 👁️ 24 พ.ย. โหมด DEV ดูแทนคนสวน/ทีมตัด (เมนู Developer · dev-drivers.html) — ?asUser=<uid>
+//    ดูอย่างเดียว: บล็อกทุกคำขอที่ไม่ใช่ GET (แก้/ยกเลิก/เปลี่ยนคนขับ/อ่านใบชั่ง) · ไม่ใช้ LIFF · ไม่เขียน ssb_uid · ต้องเป็น DEV (บัตร ssb_session_v1 + Edge dev-drivers ?action=me)
+//    ผู้ใช้ปกติ (ไม่มี ?asUser) ไม่โดนอะไรเลย · แบบเดียวกับ Driver_form ?asDriver=
+const DEVV = (function(){ try{ const u = new URLSearchParams(location.search).get('asUser');
+  return (u && /^U[0-9a-f]{32}$/.test(u)) ? { uid: u } : null; }catch(e){ return null; } })();
+if (DEVV) {
+  const _f = window.fetch.bind(window);
+  window.fetch = function(url, opt){
+    const m = String((opt && opt.method) || (url && url.method) || 'GET').toUpperCase();
+    if (m !== 'GET' && m !== 'HEAD') {
+      console.warn('[DEV view] บล็อกการบันทึก', String((url && url.url) || url).slice(0, 120));
+      return Promise.resolve(new Response(JSON.stringify({ success:false, ok:false, status:'err', error:'👁️ โหมด DEV ดูอย่างเดียว — ไม่บันทึก', message:'👁️ โหมด DEV ดูอย่างเดียว — ไม่บันทึก' }), { status:200, headers:{ 'Content-Type':'application/json' } }));
+    }
+    return _f(url, opt);
+  };
+}
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbw2DXaTVoX5cgUZjQrGlpx7tQ1-gwcYYB85eY8MElo2oaqBIxCsjVfL7yMiM8uuUw9YxA/exec';
 // 🧪 ปุ่มเขียน (แก้/ยกเลิก/ยกเลิกแวะลาน/เปลี่ยนคนขับ) → Supabase Edge "order-actions" — เปิดเฉพาะเครื่องที่ทดสอบ (?edgew=1 เปิด · ?edgew=0 ปิด)
 //    ค่าเริ่ม = GAS เดิม · ไม่ถอยไป GAS อัตโนมัติ (ปุ่มเขียน ยิงซ้ำ = แจ้ง LINE ซ้ำ) · เพิ่มงานเข้าทริป ยังเป็น GAS เสมอ
@@ -1537,6 +1553,23 @@ function _lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null;
 function _lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 
 async function init() {
+  if (DEVV) {   // 👁️ โหมด DEV — เช็คสิทธิ์จากบัตรล็อกอินแดชบอร์ด แล้วโหลดในฐานะ uid นั้น (ไม่ผ่าน LIFF · ไม่แตะ ssb_uid ของเครื่องนี้)
+    const bar = document.createElement('div'); bar.id = 'devv-bar';
+    bar.style.cssText = 'position:sticky;top:0;z-index:99999;background:#7C2D12;color:#fff;text-align:center;padding:7px 10px;font-size:12.5px;font-weight:700';
+    bar.textContent = '👁️ โหมด DEV ดูแทนผู้ใช้ · ดูอย่างเดียว กดแก้/ยกเลิกไม่ได้';
+    document.body.insertBefore(bar, document.body.firstChild);
+    const stop = msg => { bar.textContent = msg; const l = document.getElementById('loading'); if (l) l.innerHTML = `<p class="text-sm text-red-600 px-6 text-center">${escapeHtml(msg)}</p>`; };
+    let me = '';
+    try { const s = JSON.parse(_lsGet('ssb_session_v1') || 'null'); if (s && s.uid && (!s.t || Date.now() - s.t < 7 * 864e5)) me = s.uid; } catch (e) {}
+    if (!me) { stop('⛔ เปิดจากเมนู Developer ในแดชบอร์ดเท่านั้น'); return; }
+    try {
+      const r = await fetch('https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/dev-drivers?action=me&userId=' + encodeURIComponent(me)).then(x => x.json());
+      if (!r || !r.dev) { stop('⛔ หน้านี้สำหรับ DEV เท่านั้น'); return; }
+    } catch (e) { stop('⚠️ ตรวจสิทธิ์ไม่สำเร็จ'); return; }
+    window._userId = DEVV.uid;
+    await loadOrders(false, DEVV.uid);
+    return;
+  }
   // 🔧 dev/test override: ?uid=Uxxxx → เข้าดูในฐานะ uid นั้น (ข้าม LINE login) สำหรับแอดมินเทส
   //    ephemeral: ไม่เขียน cache + ล้าง cache เก่าทิ้ง → ครั้งต่อไป (ไม่มี ?uid) ล็อกอินจริงใหม่ ไม่ติดค้าง
   const qUid = new URLSearchParams(location.search).get('uid');
