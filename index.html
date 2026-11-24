@@ -63,9 +63,16 @@
 // 👁️ 24 พ.ย. โหมด DEV ดูแทนคนสวน/ทีมตัด (เมนู Developer · dev-drivers.html) — ?asUser=<uid>
 //    ดูอย่างเดียว: บล็อกทุกคำขอที่ไม่ใช่ GET (แก้/ยกเลิก/เปลี่ยนคนขับ/อ่านใบชั่ง) · ไม่ใช้ LIFF · ไม่เขียน ssb_uid · ต้องเป็น DEV (บัตร ssb_session_v1 + Edge dev-drivers ?action=me)
 //    ผู้ใช้ปกติ (ไม่มี ?asUser) ไม่โดนอะไรเลย · แบบเดียวกับ Driver_form ?asDriver=
-//    🔒 24 พ.ย. ?uid= (ทางลัดเทสเดิม ข้ามล็อกอิน ไม่เช็คสิทธิ์ ไม่บล็อกการเขียน) → ใช้ทางเดียวกับ ?asUser= แล้ว (ต้องเป็น DEV + ดูอย่างเดียว)
-const DEVV = (function(){ try{ const q = new URLSearchParams(location.search); const u = q.get('asUser') || q.get('uid');
-  return (u && /^U[0-9a-f]{32}$/i.test(u)) ? { uid: u } : null; }catch(e){ return null; } })();
+//    🔒 24 พ.ย. ?uid= (ทางลัดเทสเดิม ข้ามล็อกอิน) → ตัดทิ้งจาก URL แล้วใช้บัญชีที่ล็อกอินจริง (LIFF/บัตร SSO) เห็นตามโรลปกติ
+//       (คุณน้อง: "แอดมินแต่ละโรลต้องดูได้ ส่วน dev เข้าได้หมด" — ลิงก์/บุ๊กมาร์กเก่าที่มี ?uid= ไม่ให้กลายเป็นโหมด DEV)
+//    ?asUser= เป็นบัญชีตัวเอง (ตรงกับบัตร SSO) = โหมดปกติ ไม่ขึ้นแถบ DEV
+const DEVV = (function(){ try{
+  const q = new URLSearchParams(location.search);
+  if (q.has('uid')) { q.delete('uid'); const s = q.toString(); history.replaceState(null, '', location.pathname + (s ? '?' + s : '') + location.hash); }
+  const u = q.get('asUser');
+  if (!u || !/^U[0-9a-f]{32}$/i.test(u)) return null;
+  let me = ''; try { const c = JSON.parse(localStorage.getItem('ssb_session_v1') || 'null'); me = (c && c.uid) || ''; } catch (e) {}
+  return me && me === u ? null : { uid: u }; }catch(e){ return null; } })();
 if (DEVV) {
   const _f = window.fetch.bind(window);
   window.fetch = function(url, opt){
