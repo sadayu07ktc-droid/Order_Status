@@ -32,7 +32,7 @@
 <title>ติดตามสถานะออเดอร์ — SSB</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <!-- ssbFetch: อ่านจาก Supabase Edge ก่อน พลาด → GAS (ไฟล์อยู่ repo SSB-SMART-SUPPLY-DASHBOARD) · โหลดไม่ได้ก็ใช้ fetch เดิม -->
-<script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261014b"></script>
+<script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-read.js?v=20261124a"></script>
 <script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-pin-gate.js?v=20261014b"></script>
 <script src="/SSB-SMART-SUPPLY-DASHBOARD/ssb-group-gate.js?v=20261014a"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1609,15 +1609,18 @@ async function init() {
     window._userId = profile.userId;
     window._profile = profile;   // ชื่อ/รูป ใช้บนหน้าเลือกกลุ่ม (แอดมิน)
     _lsSet('ssb_uid', profile.userId);
-    if (pre && cachedUid === profile.userId) { await pre; }   // uid ตรง → ใช้ผลที่โหลดขนานไปแล้ว
-    else { await loadOrders(false, profile.userId); }          // uid เปลี่ยน/ไม่มี cache → โหลดด้วย uid จริง
+    // 🔐 24 พ.ย. บัตรเซ็น (ID token → Edge ssb-auth) · มีบัตรอยู่แล้ว = ไม่ขอซ้ำ (ยิงขนานด้านบนใช้บัตรเดิมได้เลย)
+    try { if (window.ssbAuth) await ssbAuth.ensure(profile.userId); } catch (e) {}
+    window._liffDone = true;   // ก่อนนี้ (ยิงขนาน) บัตรไม่ผ่าน = เงียบไว้ รอโหลดใหม่ด้านล่าง
+    const st = (pre && cachedUid === profile.userId) ? await pre : 'reload';   // uid ตรง → ใช้ผลที่โหลดขนานไปแล้ว
+    if (st === 'reload' || st === 'auth') await loadOrders(false, profile.userId);   // uid เปลี่ยน/ไม่มี cache/ยิงก่อนมีบัตร → โหลดใหม่
   } catch (e) {
     console.error(e);
     if (!pre) document.getElementById('loading').innerHTML = `<p class="text-sm text-red-600 px-6 text-center">โหลดไม่สำเร็จ: ${escapeHtml(e.message || String(e))}</p>`;
   }
 }
 
-async function loadOrders(isRefresh, uid) {
+async function loadOrders(isRefresh, uid, authRetried) {
   uid = uid || window._userId;
   LOADING = true;
   spinRefresh(true);   // ปุ่มที่มีอยู่แล้ว → หมุนทันที (บอกว่ากำลังโหลดของสด)
@@ -1638,6 +1641,21 @@ async function loadOrders(isRefresh, uid) {
     // ⚡ ssbFetch = Supabase Edge "order-tracker" ก่อน (~1 วิ · ผลตรง GAS ทุกฟิลด์) พลาด/เกิน 10 วิ → GAS เดิม
     const res = await (window.ssbFetch || fetch)(`${GAS_URL}?action=getOrderTracker&userId=${uid}`);
     const data = await res.json();
+
+    // 🔐 24 พ.ย. Edge ไม่รับบัตร (ไม่มี/หมดอายุ/ไม่ใช่ของ uid นี้) → ทิ้งบัตร ขอใหม่จาก LIFF แล้วลองอีก 1 ครั้ง · ยังไม่ได้ = ปุ่มล็อกอิน LINE ใหม่ (?login=1)
+    if (data.authRequired) {
+      if (!authRetried && window.ssbAuth) {
+        if (!DEVV) ssbAuth.clear();   // DEV ดูแทน = บัตรของ DEV เอง อย่าทิ้ง (ขอใหม่ได้ที่แดชบอร์ด)
+        const t = DEVV ? '' : await ssbAuth.ensure(uid).catch(() => '');
+        if (t) return loadOrders(isRefresh, uid, true);
+      }
+      if (!DEVV && !window._liffDone) return 'auth';   // ยิงขนานก่อน LIFF พร้อม → ไม่โชว์ error (init() จะโหลดใหม่หลังได้บัตร)
+      const why = DEVV ? 'บัตรยืนยันตัวตนของ DEV ไม่มี/หมดอายุ — เปิดแดชบอร์ดใหม่ 1 ครั้งแล้วกลับมาหน้านี้' : (data.error || 'ยืนยันตัวตนไม่ผ่าน');
+      if (!ALL_ORDERS.length) document.getElementById('app').innerHTML = `<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-700 mt-6">${escapeHtml(why)}`
+        + (DEVV ? '' : `<div class="mt-4"><a href="?login=1" class="inline-block px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm">ล็อกอิน LINE ใหม่</a></div>`) + `</div>`;
+      document.getElementById('loading').style.display = 'none';
+      return 'auth';
+    }
 
     if (!data.success) {
       if (!ALL_ORDERS.length) document.getElementById('app').innerHTML = `<div class="bg-white rounded-2xl border border-amber-200 p-8 text-center text-amber-700 mt-6">${escapeHtml(data.error || 'เกิดข้อผิดพลาด')}</div>`;
