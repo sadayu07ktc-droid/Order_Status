@@ -99,6 +99,9 @@ function postAction(payload){
 }
 const PACKING_URL = '/SSB-App/packing/';   // แดชบอร์ด Packing (SSB-App)
 let PK_PENDING = null;    // จำนวนคำขอ Packing ค้างจัดรถ (จาก getPkSummary)
+// 🚜 26 พ.ย. คุณน้อง: ปุ่มเข้าหน้า ขอรถไร่ (farm-hub · งานกาก Bulk จาก Order Hub) ข้างชิป Packing · เฉพาะกลุ่มไร่ + สิทธิ์ที่ Edge pk-hub ให้ดู (ADMIN/MANAGER/EXECUTIVE/DEV)
+let FARM_REQ = null, FARM_OK = false;
+const FARM_HUB_URL = '/SSB-SMART-SUPPLY-DASHBOARD/farm-hub.html';
 const PK_SLIP_EDGE = 'https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/pk-slip-ocr';
 let PK_SLIPS = {};        // 🧾 ใบชั่งออก งาน PK (Edge pk-slip-ocr) — orderId → ผลอ่าน (11 พ.ย.)
 const LIFF_ID = '2010274217-KGSFWvpp';
@@ -1415,6 +1418,21 @@ function packingChipHtml() {
     : `<button id="pkchip" type="button" onclick="toast('ยังไม่ได้ตั้ง URL แดชบอร์ด Packing\\nเติมค่า PACKING_URL ใน index.html ก่อนครับ')" class="${cls}">${inner}</button>`;
 }
 
+function farmChipHtml() {
+  if (!FARM_OK) return '<span id="fmchip" hidden></span>';
+  const hot = FARM_REQ > 0;
+  const badge = `<span class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full ${hot ? 'bg-white text-emerald-800' : 'bg-white/25 text-white'} text-xs font-extrabold">${FARM_REQ == null ? '–' : FARM_REQ}</span>`;
+  const cls = `inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold text-white shadow-md bg-gradient-to-r from-emerald-800 to-green-600 hover:brightness-110 hover:shadow-lg transition-all ${hot ? 'ring-2 ring-emerald-300 ring-offset-1' : ''}`;
+  return `<a id="fmchip" href="${FARM_HUB_URL}" target="_blank" rel="noopener" class="${cls}" title="คำขอรถไร่ (งานกาก Bulk) จาก Order Hub — เลือกคนขับไร่ + ทะเบียน" onclick="event.stopPropagation()"><span class="text-base leading-none">🚜</span><span>ขอรถไร่</span>${badge}<span class="text-white/85 text-xs font-medium">รอจัดรถ</span></a>`;
+}
+function loadFarmReq() {
+  fetch('https://abihhdjcrbvwlkzwvjio.supabase.co/functions/v1/pk-hub?action=list&dept=FARM&userId=' + encodeURIComponent(window._userId || '') + '&t=' + Date.now())
+    .then(r => r.json()).then(r => {
+      FARM_OK = !!(r && r.ok); FARM_REQ = FARM_OK ? (r.rows || []).filter(x => x.status === 'wait').length : null;
+      const el = document.getElementById('fmchip'); if (el) el.outerHTML = farmChipHtml();
+    }).catch(() => {});
+}
+
 // อัปเดตเฉพาะชิป Packing (หลัง getPkSummary กลับมา) — ไม่ re-render ทั้งหน้า
 function refreshPackingChip() {
   const el = document.getElementById('pkchip');
@@ -1520,6 +1538,7 @@ function render() {
         ${icon("calendar", 14, "inline -mt-0.5 mr-1")}ช่วงวันที่
       </button>
       ${isAdmin ? packingChipHtml() : ''}
+      ${isAdmin && ADMIN_GROUP === 'ไร่' ? farmChipHtml() : ''}
     </div>`;
 
   // ออเดอร์ตามวันที่เลือก (ก่อน filter สถานะ/ผู้สั่ง) — ใช้สำหรับนับในแดชบอร์ด
@@ -1681,6 +1700,7 @@ async function loadOrders(isRefresh, uid, authRetried) {
       (window.ssbFetch || fetch)(`${GAS_URL}?action=getPkSummary`).then(r => r.json()).then(pk => {
         if (pk && pk.ok) { PK_PENDING = pk.waiting; refreshPackingChip(); }
       }).catch(() => {});
+      loadFarmReq(); // 🚜 คำขอรถไร่ รอจัดรถ (farm-hub)
       loadFleet();   // ตำแหน่งรถสด (วิ่ง/จอด/ดับ + ทิศ) — เบื้องหลัง เติมบนการ์ดเมื่อได้ข้อมูล
       loadPkSlips(); // 🧾 ใบชั่งออก งาน PK — เบื้องหลัง เติมชิปบนการ์ด
       loadPlateReports(); // 🚗 คนขับแจ้งทะเบียนไม่ตรง
